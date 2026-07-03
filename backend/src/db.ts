@@ -82,32 +82,33 @@ export const createDb = (d1: D1Database) => ({
     at: number;
     handles?: string[];
   }): Promise<LeaderboardRow[]> => {
+    const isAll = query.period === "all";
+    const from = isAll
+      ? "FROM users u"
+      : "FROM usage_days d JOIN users u ON u.handle = d.handle";
+    const secondsExpr = isAll ? "u.total_seconds" : "SUM(d.seconds)";
+
     const bind: (string | number)[] = [];
-    let sql: string;
-    if (query.period === "all") {
-      sql = `SELECT ${USER_COLUMNS}, total_seconds AS seconds FROM users`;
-    } else {
+    const conditions: string[] = [];
+    if (!isAll) {
       const since = query.period === "today" ? utcDay(query.at) : utcDay(query.at - 6 * 86400);
       bind.push(since);
-      sql =
-        "SELECT u.handle, u.display_name, u.total_seconds, u.last_seen_at, SUM(d.seconds) AS seconds " +
-        "FROM usage_days d JOIN users u ON u.handle = d.handle " +
-        `WHERE d.day >= ?${bind.length} `;
+      conditions.push(`d.day >= ?${bind.length}`);
     }
     if (query.handles) {
       const placeholders = query.handles.map((handle) => {
         bind.push(handle);
         return `?${bind.length}`;
       });
-      const column = query.period === "all" ? "handle" : "u.handle";
-      sql += `${query.period === "all" ? " WHERE" : "AND"} ${column} IN (${placeholders.join(",")}) `;
+      conditions.push(`u.handle IN (${placeholders.join(",")})`);
     }
-    if (query.period !== "all") {
-      sql += "GROUP BY u.handle ";
-    }
+
+    const where = conditions.length ? ` WHERE ${conditions.join(" AND ")}` : "";
+    const groupBy = isAll ? "" : " GROUP BY u.handle";
     bind.push(query.limit);
-    const orderColumn = query.period === "all" ? "handle" : "u.handle";
-    sql += ` ORDER BY seconds DESC, ${orderColumn} ASC LIMIT ?${bind.length}`;
+    const sql =
+      `SELECT u.handle, u.display_name, u.total_seconds, u.last_seen_at, ${secondsExpr} AS seconds ` +
+      `${from}${where}${groupBy} ORDER BY seconds DESC, u.handle ASC LIMIT ?${bind.length}`;
 
     const { results } = await d1
       .prepare(sql)
