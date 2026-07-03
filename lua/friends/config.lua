@@ -1,0 +1,46 @@
+local M = {}
+
+M.defaults = function()
+  return {
+    -- Backend to talk to. Point this at your own worker to self host.
+    url = "https://friends.spader.zone/api",
+    -- Handles you follow. Merged with the ones added via :Friends add.
+    friends = {},
+    -- Display name pushed to the backend on startup. Overrides :Friends name.
+    display_name = nil,
+    -- Send activity heartbeats. Disable to lurk: leaderboard and friend
+    -- status keep working but you never appear in them.
+    track = true,
+    -- Seconds between heartbeats while you are typing.
+    heartbeat_interval = 60,
+    -- Seconds between friend status refreshes for the statusline. 0 disables.
+    status_interval = 60,
+    -- Request timeout in milliseconds.
+    request_timeout = 5000,
+    statusline = {
+      active = "●",
+      idle = "○",
+      separator = " ",
+      -- Show each friend's name next to their dot.
+      names = false,
+    },
+    leaderboard = {
+      period = "week", -- all | week | today
+      limit = 20,
+      -- Only rank you and your friends instead of the whole world.
+      friends_only = false,
+    },
+  }
+end
+
+M.options = M.defaults()
+
+M.setup = function(opts)
+  M.options = vim.tbl_deep_extend("force", M.defaults(), M.options, opts or {})
+end
+
+M.data_dir = function()
+  return vim.fn.stdpath("data") .. "/friends.nvim"
+end
+
+return M

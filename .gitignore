@@ -1,0 +1,10 @@
+.envrc
+node_modules/
+backend/dist/
+backend/wrangler.json
+.wrangler/
+.terraform/
+*.tfstate
+*.tfstate.*
+doc/tags
+/.llm

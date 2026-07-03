@@ -1,0 +1,90 @@
+local config = require("friends.config")
+
+local M = {}
+
+M.last_error = nil
+
+-- cb(data, status): called on the main loop with the decoded JSON body (nil
+-- on transport/HTTP failure, recorded in M.last_error) and the HTTP status
+-- (0 when the request never made it out).
+local request = function(method, path, body, cb)
+  local args = {
+    "curl",
+    "-sS",
+    "--max-time",
+    tostring(config.options.request_timeout / 1000),
+    "-X",
+    method,
+    "-H",
+    "content-type: application/json",
+    "-H",
+    "accept: application/json",
+    "-w",
+    "\n%{http_code}",
+    config.options.url .. path,
+  }
+  if body ~= nil then
+    table.insert(args, "-d")
+    table.insert(args, vim.json.encode(body))
+  end
+  vim.system(args, { text = true }, function(out)
+    vim.schedule(function()
+      if out.code ~= 0 then
+        M.last_error = vim.trim(out.stderr or "curl failed")
+        cb(nil, 0)
+        return
+      end
+      local payload, status = (out.stdout or ""):match("^(.*)\n(%d+)%s*$")
+      status = tonumber(status) or 0
+      local ok, decoded =
+        pcall(vim.json.decode, payload or "", { luanil = { object = true, array = true } })
+      if status < 200 or status >= 300 or not ok then
+        M.last_error = (ok and type(decoded) == "table" and decoded.error)
+          or string.format("%s %s -> %d", method, path, status)
+        cb(nil, status)
+        return
+      end
+      M.last_error = nil
+      cb(decoded, status)
+    end)
+  end)
+end
+
+M.register = function(handle, token, display_name, cb)
+  local body = { token = token }
+  if display_name ~= nil then
+    body.display_name = display_name
+  end
+  request("PUT", "/v1/users/" .. handle, body, cb or function() end)
+end
+
+M.heartbeat = function(handle, token, seconds, cb)
+  request(
+    "POST",
+    "/v1/users/" .. handle .. "/heartbeat",
+    { token = token, seconds = seconds },
+    cb or function() end
+  )
+end
+
+M.status = function(handles, cb)
+  request("GET", "/v1/users?handles=" .. table.concat(handles, ","), nil, cb)
+end
+
+M.leaderboard = function(opts, cb)
+  local query = "?period=" .. opts.period .. "&limit=" .. opts.limit
+  if opts.handles then
+    query = query .. "&handles=" .. table.concat(opts.handles, ",")
+  end
+  request("GET", "/v1/leaderboard" .. query, nil, cb)
+end
+
+-- Blocking; only for :checkhealth.
+M.ping = function()
+  local out = vim
+    .system({ "curl", "-fsS", "--max-time", "2", config.options.url }, { text = true })
+    :wait()
+  return out.code == 0
+end
+
+return M

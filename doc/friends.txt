@@ -1,0 +1,108 @@
+*friends.txt*  See when your friends are hacking, and out-hack them.
+
+==============================================================================
+CONTENTS                                                     *friends-contents*
+
+  1. Introduction ......................................... |friends-intro|
+  2. Setup ................................................ |friends-setup|
+  3. Commands ............................................. |friends-commands|
+  4. Statusline ........................................... |friends-statusline|
+  5. Self hosting ......................................... |friends-selfhost|
+
+==============================================================================
+1. INTRODUCTION                                                 *friends-intro*
+
+friends.nvim tracks when you are active in Neovim (via keypresses), tallies
+your hours on a shared backend, and shows you what your friends are up to:
+a leaderboard, and statusline dots that light up while they type.
+
+On first launch a random handle (like `brave-otter-42`) plus a secret token
+are generated locally and registered with the backend. The handle is your
+identity; share it with friends so they can `:Friends add` you. The token
+(never shared) is what lets you keep the handle: only its holder can post
+activity or rename as you. Set a human name with `:Friends name`. To reuse
+an identity on another machine, see |:Friends-key| and |:Friends-claim|.
+
+Requires nvim 0.10+ and curl. No other dependencies.
+
+==============================================================================
+2. SETUP                                                        *friends-setup*
+
+Calling setup() is optional; everything has defaults. Tracking starts
+automatically on |VimEnter|; set `vim.g.friends_autostart = false` before
+plugins load to opt out.                                  *g:friends_autostart*
+
+The defaults: >lua
+
+  require("friends").setup({
+    -- Backend to talk to. Point this at your own worker to self host.
+    url = "https://friends.spader.zone/api",
+    -- Handles you follow. Merged with the ones added via :Friends add.
+    friends = {},
+    -- Display name pushed to the backend on startup. Overrides :Friends name.
+    display_name = nil,
+    -- Send activity heartbeats. Disable to lurk.
+    track = true,
+    -- Seconds between heartbeats while you are typing.
+    heartbeat_interval = 60,
+    -- Seconds between friend status refreshes for the statusline. 0 disables.
+    status_interval = 60,
+    -- Request timeout in milliseconds.
+    request_timeout = 5000,
+    statusline = {
+      active = "●",
+      idle = "○",
+      separator = " ",
+      -- Show each friend's name next to their dot.
+      names = false,
+    },
+    leaderboard = {
+      period = "week", -- all | week | today
+      limit = 20,
+      -- Only rank you and your friends instead of the whole world.
+      friends_only = false,
+    },
+  })
+<
+==============================================================================
+3. COMMANDS                                                  *friends-commands*
+
+                                                                     *:Friends*
+:Friends                Show the leaderboard.
+:Friends add {handle}   Follow a friend by handle.
+:Friends remove {handle}
+                        Unfollow a friend.
+:Friends list           Show your friends, who is active, and their hours.
+:Friends name {name}    Set your display name.
+:Friends handle         Show your handle so you can share it.
+                                                                *:Friends-key*
+:Friends key            Show your handle + secret token, for claiming this
+                        identity on another machine. Don't share it.
+                                                              *:Friends-claim*
+:Friends claim {handle} {token}
+                        Become an existing identity (paste from
+                        :Friends key on your other machine).
+:Friends toggle         Pause/resume activity tracking.
+
+==============================================================================
+4. STATUSLINE                                              *friends-statusline*
+
+`require("friends").statusline()` returns a string with one dot per friend,
+filled while they are active. It reads from a cache and never blocks.
+
+lualine: >lua
+
+  sections = { lualine_x = { "friends" } }
+<
+plain 'statusline': >lua
+
+  vim.o.statusline = "%f %= %{v:lua.require'friends'.statusline()}"
+<
+==============================================================================
+5. SELF HOSTING                                              *friends-selfhost*
+
+The backend is a small Hono app on Cloudflare Workers with D1, deployed with
+Terraform (which also generates `backend/wrangler.json`). See the README in
+the repository root. Point `url` at your worker and you are done.
+
+vim:tw=78:ts=8:sw=4:sts=4:et:ft=help:norl:

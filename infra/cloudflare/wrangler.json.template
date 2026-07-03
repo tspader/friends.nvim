@@ -1,0 +1,14 @@
+{
+  "name": "${worker_name}",
+  "compatibility_date": "${compatibility_date}",
+  "main": "src/index.ts",
+  "workers_dev": false,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "friends",
+      "database_id": "${d1_id}",
+      "migrations_dir": "migrations"
+    }
+  ]
+}
