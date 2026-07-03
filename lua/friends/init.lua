@@ -36,8 +36,8 @@ M.toggle = function()
   end
 end
 
-M.statusline = function()
-  return require("friends.status").statusline()
+M.statusline = function(opts)
+  return require("friends.status").statusline(opts)
 end
 
 M.handle = function()

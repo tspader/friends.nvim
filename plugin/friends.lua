@@ -8,6 +8,16 @@ if vim.g.loaded_friends == 1 then
 end
 vim.g.loaded_friends = 1
 
+local set_highlights = function()
+  vim.api.nvim_set_hl(0, "FriendsActive", { link = "DiagnosticOk", default = true })
+  vim.api.nvim_set_hl(0, "FriendsIdle", { link = "Comment", default = true })
+end
+set_highlights()
+vim.api.nvim_create_autocmd("ColorScheme", {
+  group = vim.api.nvim_create_augroup("FriendsHighlights", {}),
+  callback = set_highlights,
+})
+
 vim.api.nvim_create_user_command("Friends", function(opts)
   require("friends.command").run(opts.fargs)
 end, {

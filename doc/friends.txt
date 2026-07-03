@@ -68,7 +68,8 @@ The defaults: >lua
 3. COMMANDS                                                  *friends-commands*
 
                                                                      *:Friends*
-:Friends                Show the leaderboard.
+:Friends                Show the leaderboard. Press `a` on a row to follow
+                        that person; `q` closes.
 :Friends add {handle}   Follow a friend by handle.
 :Friends remove {handle}
                         Unfollow a friend.
@@ -87,17 +88,25 @@ The defaults: >lua
 ==============================================================================
 4. STATUSLINE                                              *friends-statusline*
 
-`require("friends").statusline()` returns a string with one dot per friend,
-filled while they are active. It reads from a cache and never blocks.
+`require("friends").statusline()` returns a string with one dot per friend:
+green and filled while they are active (highlighted via |hl-FriendsActive|),
+dim and hollow otherwise. It reads from a cache and never blocks.
 
 lualine: >lua
 
   sections = { lualine_x = { "friends" } }
 <
-plain 'statusline': >lua
+plain 'statusline' (note the `%{%...%}` form, so highlights apply): >lua
 
-  vim.o.statusline = "%f %= %{v:lua.require'friends'.statusline()}"
+  vim.o.statusline = "%f %= %{%v:lua.require'friends'.statusline()%}"
 <
+`statusline({ hl = false })` returns the dots without highlight escapes.
+
+                                           *hl-FriendsActive* *hl-FriendsIdle*
+Colors come from the `FriendsActive` (default: links to |hl-DiagnosticOk|)
+and `FriendsIdle` (default: links to |hl-Comment|) highlight groups, used in
+the statusline and the leaderboard/list windows. Override with
+|nvim_set_hl()|.
 ==============================================================================
 5. SELF HOSTING                                              *friends-selfhost*
 

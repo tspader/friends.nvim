@@ -98,7 +98,18 @@ vim.wait(5000, function()
   return refreshed
 end)
 local line = require("friends").statusline()
-check("statusline shows active dot", line:find("●", 1, true) ~= nil, "'" .. line .. "'")
+check(
+  "statusline shows highlighted active dot",
+  line:find("%#FriendsActive#●", 1, true) ~= nil,
+  "'" .. line .. "'"
+)
+check(
+  "plain statusline has no escapes",
+  require("friends").statusline({ hl = false }) == "●",
+  "'" .. require("friends").statusline({ hl = false }) .. "'"
+)
+local parts = require("friends.status").parts()
+check("statusline parts for lualine", #parts == 1 and parts[1].active == true, vim.inspect(parts))
 
 local board = await(function(cb)
   api.leaderboard({ period = "week", limit = 10 }, cb)
@@ -116,6 +127,28 @@ check(
   mine_entry ~= nil and mine_entry.display_name == nil,
   vim.inspect(mine_entry)
 )
+
+roster.remove(FRIEND)
+require("friends.ui").leaderboard()
+vim.wait(5000, function()
+  return vim.bo.filetype == "friends"
+end)
+local target
+for i, l in ipairs(vim.api.nvim_buf_get_lines(0, 0, -1, false)) do
+  if l:find("Smokey", 1, true) then
+    target = i
+  end
+end
+check("leaderboard row shows friend", target ~= nil)
+if target then
+  vim.api.nvim_win_set_cursor(0, { target, 0 })
+  vim.api.nvim_feedkeys("a", "tx", false)
+  vim.wait(5000, function()
+    return vim.tbl_contains(roster.all(), FRIEND)
+  end)
+  check("follow from leaderboard", vim.tbl_contains(roster.all(), FRIEND))
+  vim.cmd("close")
+end
 
 local identity = require("friends.identity")
 local claim_result

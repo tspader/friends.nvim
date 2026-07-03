@@ -3,9 +3,33 @@ local util = require("friends.util")
 
 local M = {}
 
-local open_float = function(title, lines)
+local ns = vim.api.nvim_create_namespace("friends_ui")
+
+local highlight_icons = function(buf, lines)
+  local icons = {
+    { config.options.statusline.active, "FriendsActive" },
+    { config.options.statusline.idle, "FriendsIdle" },
+  }
+  for lnum, line in ipairs(lines) do
+    for _, spec in ipairs(icons) do
+      local from = 1
+      while true do
+        local s, e = line:find(spec[1], from, true)
+        if not s then
+          break
+        end
+        vim.api.nvim_buf_set_extmark(buf, ns, lnum - 1, s - 1, { end_col = e, hl_group = spec[2] })
+        from = e + 1
+      end
+    end
+  end
+end
+
+local open_float = function(title, lines, float_opts)
+  float_opts = float_opts or {}
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  highlight_icons(buf, lines)
   vim.bo[buf].modifiable = false
   vim.bo[buf].bufhidden = "wipe"
   vim.bo[buf].filetype = "friends"
@@ -27,11 +51,16 @@ local open_float = function(title, lines)
     border = "rounded",
     title = " " .. title .. " ",
     title_pos = "center",
+    footer = float_opts.footer and (" " .. float_opts.footer .. " ") or nil,
+    footer_pos = float_opts.footer and "center" or nil,
   })
   vim.wo[win].cursorline = true
 
   for _, key in ipairs({ "q", "<Esc>" }) do
     vim.keymap.set("n", key, "<cmd>close<cr>", { buffer = buf, nowait = true })
+  end
+  for key, fn in pairs(float_opts.keys or {}) do
+    vim.keymap.set("n", key, fn, { buffer = buf, nowait = true })
   end
 end
 
@@ -69,7 +98,22 @@ M.leaderboard = function()
     if #lines == 0 then
       lines = { " nobody here yet — get typing" }
     end
-    open_float("friends.nvim — " .. data.period, lines)
+    open_float("friends.nvim — " .. data.period, lines, {
+      footer = "a: follow · q: close",
+      keys = {
+        a = function()
+          local entry = data.entries[vim.api.nvim_win_get_cursor(0)[1]]
+          if not entry then
+            return
+          end
+          if entry.handle == me then
+            util.notify("that's you")
+            return
+          end
+          require("friends.roster").add(entry.handle)
+        end,
+      },
+    })
   end)
 end
 
