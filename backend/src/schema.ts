@@ -28,6 +28,8 @@ export const HeartbeatBody = z.object({
   seconds: z.number().int().min(1).max(MAX_HEARTBEAT_SECONDS),
 });
 
+export const DeleteBody = z.object({ token: Token });
+
 export const StatusQuery = z.object({
   handles: handleList(MAX_STATUS_HANDLES),
 });

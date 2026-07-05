@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { createDb, type User } from "./db";
 import {
+  DeleteBody,
   HandleParam,
   HeartbeatBody,
   LeaderboardQuery,
@@ -13,7 +14,9 @@ import {
   StatusQuery,
 } from "./schema";
 
-type AppEnv = { Bindings: { DB: D1Database } };
+type RateLimiter = { limit: (opts: { key: string }) => Promise<{ success: boolean }> };
+
+type AppEnv = { Bindings: { DB: D1Database; RATE_LIMITER?: RateLimiter } };
 
 const ACTIVE_WINDOW_SECONDS = 120;
 const MIN_HEARTBEAT_GAP_SECONDS = 15;
@@ -49,6 +52,20 @@ const onInvalid = (
 
 const app = new Hono<AppEnv>({ strict: false }).basePath("/api");
 
+const WRITE_METHODS = new Set(["PUT", "POST", "DELETE"]);
+
+app.use("/v1/*", async (c, next) => {
+  const limiter = c.env.RATE_LIMITER;
+  if (limiter && WRITE_METHODS.has(c.req.method)) {
+    const ip = c.req.header("cf-connecting-ip") ?? "unknown";
+    const { success } = await limiter.limit({ key: ip });
+    if (!success) {
+      return c.json({ error: "rate limited; slow down" }, 429);
+    }
+  }
+  return next();
+});
+
 app.get("/", (c) => c.json({ ok: true, service: "friends.nvim" }));
 
 app.put(
@@ -61,12 +78,10 @@ app.put(
     const db = createDb(c.env.DB);
 
     const at = now();
+    await db.createUser({ handle, token, at });
     const owner = await db.owner(handle);
-    if (owner && owner.token !== token) {
+    if (owner!.token !== token) {
       return c.json({ error: "handle taken" }, 409);
-    }
-    if (!owner) {
-      await db.createUser({ handle, token, at });
     }
     if (display_name !== undefined) {
       await db.setDisplayName(handle, display_name);
@@ -108,6 +123,27 @@ app.post(
 
     const user = await db.user(handle);
     return c.json(userJson(user!, at));
+  },
+);
+
+app.delete(
+  "/v1/users/:handle",
+  zValidator("param", HandleParam, onInvalid),
+  zValidator("json", DeleteBody, onInvalid),
+  async (c) => {
+    const { handle } = c.req.valid("param");
+    const { token } = c.req.valid("json");
+    const db = createDb(c.env.DB);
+
+    const owner = await db.owner(handle);
+    if (!owner) {
+      return c.json({ error: "not found" }, 404);
+    }
+    if (owner.token !== token) {
+      return c.json({ error: "handle taken" }, 403);
+    }
+    await db.deleteUser(handle);
+    return c.json({ ok: true });
   },
 );
 

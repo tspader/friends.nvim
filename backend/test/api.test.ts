@@ -142,6 +142,63 @@ apiTests({
     expect: { status: 400 },
   },
 
+  "delete: removes the user with the right token": {
+    setup: [heartbeat(OTTER, 60, NOON)],
+    request: {
+      method: "DELETE",
+      path: `/api/v1/users/${OTTER.handle}`,
+      body: { token: OTTER.token },
+    },
+    expect: { status: 200, body: { ok: true } },
+  },
+
+  "delete: leaves no trace behind": {
+    setup: [
+      heartbeat(OTTER, 60, NOON),
+      { method: "DELETE", path: `/api/v1/users/${OTTER.handle}`, body: { token: OTTER.token } },
+    ],
+    request: { method: "GET", path: `/api/v1/users?handles=${OTTER.handle}` },
+    expect: { status: 200, body: { users: [] } },
+  },
+
+  "delete: frees the handle for a new owner": {
+    setup: [
+      register(OTTER),
+      { method: "DELETE", path: `/api/v1/users/${OTTER.handle}`, body: { token: OTTER.token } },
+    ],
+    request: {
+      method: "PUT",
+      path: `/api/v1/users/${OTTER.handle}`,
+      body: { token: "a-brand-new-token" },
+    },
+    expect: { status: 200, body: { handle: OTTER.handle } },
+  },
+
+  "delete: rejects the wrong token": {
+    setup: [register(OTTER)],
+    request: {
+      method: "DELETE",
+      path: `/api/v1/users/${OTTER.handle}`,
+      body: { token: "someone-elses-token" },
+    },
+    expect: { status: 403, body: { error: "handle taken" } },
+  },
+
+  "delete: 404s an unknown handle": {
+    request: {
+      method: "DELETE",
+      path: `/api/v1/users/${OTTER.handle}`,
+      body: { token: OTTER.token },
+    },
+    expect: { status: 404 },
+  },
+
+  "delete: rejects missing token": {
+    setup: [register(OTTER)],
+    request: { method: "DELETE", path: `/api/v1/users/${OTTER.handle}`, body: {} },
+    expect: { status: 400, body: { error: "invalid token" } },
+  },
+
   "status: reports recent heartbeat as active": {
     setup: [heartbeat(LYNX, 60, NOON)],
     request: { method: "GET", path: `/api/v1/users?handles=${LYNX.handle}`, now: NOON + 60 },

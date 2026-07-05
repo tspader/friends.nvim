@@ -36,9 +36,19 @@ export const createDb = (d1: D1Database) => ({
 
   createUser: async (user: { handle: string; token: string; at: number }): Promise<void> => {
     await d1
-      .prepare("INSERT INTO users (handle, token, created_at) VALUES (?1, ?2, ?3)")
+      .prepare(
+        "INSERT INTO users (handle, token, created_at) VALUES (?1, ?2, ?3) " +
+          "ON CONFLICT(handle) DO NOTHING",
+      )
       .bind(user.handle, user.token, user.at)
       .run();
+  },
+
+  deleteUser: async (handle: string): Promise<void> => {
+    await d1.batch([
+      d1.prepare("DELETE FROM usage_days WHERE handle = ?1").bind(handle),
+      d1.prepare("DELETE FROM users WHERE handle = ?1").bind(handle),
+    ]);
   },
 
   setDisplayName: async (handle: string, displayName: string): Promise<void> => {
@@ -69,7 +79,10 @@ export const createDb = (d1: D1Database) => ({
     if (usage.isNew) {
       statements.unshift(
         d1
-          .prepare("INSERT INTO users (handle, token, created_at) VALUES (?1, ?2, ?3)")
+          .prepare(
+            "INSERT INTO users (handle, token, created_at) VALUES (?1, ?2, ?3) " +
+              "ON CONFLICT(handle) DO NOTHING",
+          )
           .bind(usage.handle, usage.token, usage.at),
       );
     }

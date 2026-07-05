@@ -64,6 +64,20 @@ local subcommands = {
       require("friends").toggle()
     end,
   },
+  delete = {
+    impl = function()
+      local identity = require("friends.identity")
+      local handle = identity.get().handle
+      local choice = vim.fn.confirm(
+        "Delete " .. handle .. " and all its data from the server? This cannot be undone.",
+        "&Yes\n&No",
+        2
+      )
+      if choice == 1 then
+        identity.delete()
+      end
+    end,
+  },
 }
 
 M.run = function(fargs)

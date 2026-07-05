@@ -67,6 +67,10 @@ M.heartbeat = function(handle, token, seconds, cb)
   )
 end
 
+M.delete = function(handle, token, cb)
+  request("DELETE", "/v1/users/" .. handle, { token = token }, cb or function() end)
+end
+
 M.status = function(handles, cb)
   request("GET", "/v1/users?handles=" .. table.concat(handles, ","), nil, cb)
 end

@@ -6,8 +6,6 @@ locals {
   worker_bundle      = "${path.module}/../../backend/dist/worker.js"
 }
 
-# The spader.zone zone is owned by the zone repo; look it up read-only so the
-# two states stay uncoupled.
 data "cloudflare_zone" "spader_zone" {
   filter = {
     name = local.zone_name
@@ -27,6 +25,15 @@ resource "cloudflare_workers_script" "friends" {
       type = "d1"
       name = "DB"
       id   = cloudflare_d1_database.friends.id
+    },
+    {
+      type         = "ratelimit"
+      name         = "RATE_LIMITER"
+      namespace_id = "1001"
+      simple = {
+        limit  = 60
+        period = 60
+      }
     },
   ]
 

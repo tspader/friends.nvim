@@ -84,6 +84,8 @@ The defaults: >lua
                         Become an existing identity (paste from
                         :Friends key on your other machine).
 :Friends toggle         Pause/resume activity tracking.
+:Friends delete         Delete your handle and all its data from the backend
+                        (asks first). A fresh identity is created afterward.
 
 ==============================================================================
 4. STATUSLINE                                              *friends-statusline*

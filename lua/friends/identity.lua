@@ -79,7 +79,6 @@ M.register = function(attempt)
   end)
 end
 
--- Adopt an identity from another machine (see :Friends key there).
 M.claim = function(handle, token, cb)
   cb = cb or function() end
   require("friends.api").register(handle, token, nil, function(data, status)
@@ -94,6 +93,26 @@ M.claim = function(handle, token, cb)
     else
       util.notify(
         "claim failed: " .. (require("friends.api").last_error or "?"),
+        vim.log.levels.ERROR
+      )
+      cb(false)
+    end
+  end)
+end
+
+M.delete = function(cb)
+  cb = cb or function() end
+  local identity = M.get()
+  local handle = identity.handle
+  require("friends.api").delete(handle, identity.token, function(data, status)
+    if data or status == 404 then
+      os.remove(identity_path())
+      cached = nil
+      util.notify("deleted " .. handle .. " — a new identity will be created")
+      cb(true)
+    else
+      util.notify(
+        "delete failed: " .. (require("friends.api").last_error or "?"),
         vim.log.levels.ERROR
       )
       cb(false)
