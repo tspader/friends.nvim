@@ -27,6 +27,11 @@ resource "cloudflare_workers_script" "friends" {
       id   = cloudflare_d1_database.friends.id
     },
     {
+      type       = "durable_object_namespace"
+      name       = "HUB"
+      class_name = "Hub"
+    },
+    {
       type         = "ratelimit"
       name         = "RATE_LIMITER"
       namespace_id = "1001"
@@ -35,7 +40,21 @@ resource "cloudflare_workers_script" "friends" {
         period = 60
       }
     },
+    {
+      type         = "ratelimit"
+      name         = "GET_LIMITER"
+      namespace_id = "1002"
+      simple = {
+        limit  = 120
+        period = 60
+      }
+    },
   ]
+
+  migrations = {
+    new_tag            = "v1"
+    new_sqlite_classes = ["Hub"]
+  }
 
   observability = {
     enabled            = true
@@ -73,6 +92,28 @@ resource "local_file" "wrangler_json" {
     compatibility_date = local.compatibility_date
     d1_id              = cloudflare_d1_database.friends.id
   })
+}
+
+resource "cloudflare_ruleset" "friends_ratelimit" {
+  zone_id = data.cloudflare_zone.spader_zone.id
+  name    = "friends api rate limit"
+  kind    = "zone"
+  phase   = "http_ratelimit"
+
+  rules = [
+    {
+      action      = "block"
+      description = "cap per-IP request bursts to /api/"
+      expression  = "(starts_with(http.request.uri.path, \"/api/\"))"
+      enabled     = true
+      ratelimit = {
+        characteristics    = ["ip.src", "cf.colo.id"]
+        period             = 10
+        requests_per_period = 60
+        mitigation_timeout = 10
+      }
+    },
+  ]
 }
 
 output "url" {

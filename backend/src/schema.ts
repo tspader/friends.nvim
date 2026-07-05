@@ -10,6 +10,13 @@ export const MAX_LEADERBOARD_LIMIT = 100;
 export const Handle = z.string().regex(HANDLE_RE);
 export const Token = z.string().regex(TOKEN_RE);
 
+export const DisplayName = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(/^\P{C}+$/u);
+
 const handleList = (max: number) =>
   z
     .string()
@@ -20,12 +27,13 @@ export const HandleParam = z.object({ handle: Handle });
 
 export const RegisterBody = z.object({
   token: Token,
-  display_name: z.string().max(64).optional(),
+  display_name: DisplayName.optional(),
 });
 
 export const HeartbeatBody = z.object({
   token: Token,
   seconds: z.number().int().min(1).max(MAX_HEARTBEAT_SECONDS),
+  handles: z.array(Handle).min(1).max(MAX_STATUS_HANDLES).optional(),
 });
 
 export const DeleteBody = z.object({ token: Token });

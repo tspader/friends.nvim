@@ -46,12 +46,12 @@ end)
 check("wrong token cannot take a handle", conflict == 409, tostring(conflict))
 
 local hb = await(function(cb)
-  api.heartbeat(FRIEND, TOKEN, 60, cb)
+  api.heartbeat(FRIEND, TOKEN, 60, nil, cb)
 end)
 check("heartbeat credits time", hb and hb.total_seconds == 60, vim.inspect(hb))
 
 local _, limited = await(function(cb)
-  api.heartbeat(FRIEND, TOKEN, 10, cb)
+  api.heartbeat(FRIEND, TOKEN, 10, nil, cb)
 end)
 check("rapid heartbeats are rate limited", limited == 429, tostring(limited))
 

@@ -1,7 +1,9 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import type { Context } from "hono";
-import { createDb, type User } from "./db";
+import type { User } from "./db";
+import { isError, type HubCore } from "./hub";
 import {
   DeleteBody,
   HandleParam,
@@ -16,12 +18,26 @@ import {
 
 type RateLimiter = { limit: (opts: { key: string }) => Promise<{ success: boolean }> };
 
-type AppEnv = { Bindings: { DB: D1Database; RATE_LIMITER?: RateLimiter } };
+export type HubStub = Pick<
+  HubCore,
+  "register" | "heartbeat" | "status" | "leaderboard" | "deleteUser"
+>;
+type HubNamespace = { idFromName(name: string): unknown; get(id: unknown): HubStub };
 
-const ACTIVE_WINDOW_SECONDS = 120;
-const MIN_HEARTBEAT_GAP_SECONDS = 15;
+type AppEnv = {
+  Bindings: {
+    HUB: HubNamespace;
+    RATE_LIMITER?: RateLimiter;
+    GET_LIMITER?: RateLimiter;
+  };
+};
 
-const now = () => Math.floor(Date.now() / 1000);
+const ACTIVE_WINDOW_SECONDS = 300;
+const MAX_BODY_BYTES = 4096;
+
+const hub = (c: Context<AppEnv>): HubStub => c.env.HUB.get(c.env.HUB.idFromName("hub"));
+
+const clientIp = (c: Context<AppEnv>): string => c.req.header("cf-connecting-ip") ?? "unknown";
 
 const userJson = (user: User, at: number) => ({
   ...user,
@@ -54,16 +70,21 @@ const app = new Hono<AppEnv>({ strict: false }).basePath("/api");
 
 const WRITE_METHODS = new Set(["PUT", "POST", "DELETE"]);
 
+const limitBody = bodyLimit({
+  maxSize: MAX_BODY_BYTES,
+  onError: (c) => c.json({ error: "body too large" }, 413),
+});
+
 app.use("/v1/*", async (c, next) => {
-  const limiter = c.env.RATE_LIMITER;
-  if (limiter && WRITE_METHODS.has(c.req.method)) {
-    const ip = c.req.header("cf-connecting-ip") ?? "unknown";
-    const { success } = await limiter.limit({ key: ip });
+  const isWrite = WRITE_METHODS.has(c.req.method);
+  const limiter = isWrite ? c.env.RATE_LIMITER : c.env.GET_LIMITER;
+  if (limiter) {
+    const { success } = await limiter.limit({ key: clientIp(c) });
     if (!success) {
       return c.json({ error: "rate limited; slow down" }, 429);
     }
   }
-  return next();
+  return isWrite ? limitBody(c, next) : next();
 });
 
 app.get("/", (c) => c.json({ ok: true, service: "friends.nvim" }));
@@ -75,20 +96,11 @@ app.put(
   async (c) => {
     const { handle } = c.req.valid("param");
     const { token, display_name } = c.req.valid("json");
-    const db = createDb(c.env.DB);
-
-    const at = now();
-    await db.createUser({ handle, token, at });
-    const owner = await db.owner(handle);
-    if (owner!.token !== token) {
-      return c.json({ error: "handle taken" }, 409);
+    const result = await hub(c).register({ handle, token, display_name, ip: clientIp(c) });
+    if (isError(result)) {
+      return c.json({ error: result.error }, result.status);
     }
-    if (display_name !== undefined) {
-      await db.setDisplayName(handle, display_name);
-    }
-
-    const user = await db.user(handle);
-    return c.json(userJson(user!, at));
+    return c.json(userJson(result.user, result.at));
   },
 );
 
@@ -98,31 +110,15 @@ app.post(
   zValidator("json", HeartbeatBody, onInvalid),
   async (c) => {
     const { handle } = c.req.valid("param");
-    const { token, seconds } = c.req.valid("json");
-    const db = createDb(c.env.DB);
-
-    const at = now();
-    const owner = await db.owner(handle);
-    if (owner && owner.token !== token) {
-      return c.json({ error: "handle taken" }, 403);
+    const { token, seconds, handles } = c.req.valid("json");
+    const result = await hub(c).heartbeat({ handle, token, seconds, handles });
+    if (isError(result)) {
+      return c.json({ error: result.error }, result.status);
     }
-
-    // Credit at most wall-clock time since the last heartbeat, so hours can't
-    // accrue faster than real time (and two machines on one handle don't
-    // double-count).
-    let credited = seconds;
-    if (owner && owner.last_seen_at !== null) {
-      const gap = at - owner.last_seen_at;
-      if (gap < MIN_HEARTBEAT_GAP_SECONDS) {
-        return c.json({ error: "too many heartbeats; wait a moment" }, 429);
-      }
-      credited = Math.min(seconds, gap);
-    }
-
-    await db.creditUsage({ handle, token, seconds: credited, at, isNew: !owner });
-
-    const user = await db.user(handle);
-    return c.json(userJson(user!, at));
+    return c.json({
+      ...userJson(result.user, result.at),
+      ...(result.users && { users: result.users.map((user) => userJson(user, result.at)) }),
+    });
   },
 );
 
@@ -133,46 +129,31 @@ app.delete(
   async (c) => {
     const { handle } = c.req.valid("param");
     const { token } = c.req.valid("json");
-    const db = createDb(c.env.DB);
-
-    const owner = await db.owner(handle);
-    if (!owner) {
-      return c.json({ error: "not found" }, 404);
+    const result = await hub(c).deleteUser({ handle, token });
+    if (isError(result)) {
+      return c.json({ error: result.error }, result.status);
     }
-    if (owner.token !== token) {
-      return c.json({ error: "handle taken" }, 403);
-    }
-    await db.deleteUser(handle);
     return c.json({ ok: true });
   },
 );
 
 app.get("/v1/users", zValidator("query", StatusQuery, onInvalid), async (c) => {
   const { handles } = c.req.valid("query");
-  const db = createDb(c.env.DB);
-
-  const at = now();
-  const rows = await db.users(handles);
-  const byHandle = new Map(rows.map((row) => [row.handle, row]));
-  const users = handles.flatMap((handle) => {
-    const row = byHandle.get(handle);
-    return row ? [userJson(row, at)] : [];
-  });
-  return c.json({ users });
+  const { users, at } = await hub(c).status(handles);
+  return c.json({ users: users.map((user) => userJson(user, at)) });
 });
 
 app.get("/v1/leaderboard", zValidator("query", LeaderboardQuery, onInvalid), async (c) => {
   const { period, limit, handles } = c.req.valid("query");
-  const db = createDb(c.env.DB);
-
-  const at = now();
-  const rows = await db.leaderboard({ period, limit, at, handles });
-  const entries = rows.map((row, i) => ({
-    rank: i + 1,
-    seconds: row.seconds,
-    ...userJson(row, at),
-  }));
-  return c.json({ period, entries });
+  const { entries, at } = await hub(c).leaderboard({ period, limit, handles });
+  return c.json({
+    period,
+    entries: entries.map(({ seconds, ...user }, i) => ({
+      rank: i + 1,
+      seconds,
+      ...userJson(user, at),
+    })),
+  });
 });
 
 export default app;

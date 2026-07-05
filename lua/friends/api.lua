@@ -4,6 +4,15 @@ local M = {}
 
 M.last_error = nil
 
+local MAX_HANDLES = 64
+
+local capped = function(handles)
+  if handles and #handles > MAX_HANDLES then
+    return vim.list_slice(handles, 1, MAX_HANDLES)
+  end
+  return handles
+end
+
 -- cb(data, status): called on the main loop with the decoded JSON body (nil
 -- on transport/HTTP failure, recorded in M.last_error) and the HTTP status
 -- (0 when the request never made it out).
@@ -58,13 +67,13 @@ M.register = function(handle, token, display_name, cb)
   request("PUT", "/v1/users/" .. handle, body, cb or function() end)
 end
 
-M.heartbeat = function(handle, token, seconds, cb)
-  request(
-    "POST",
-    "/v1/users/" .. handle .. "/heartbeat",
-    { token = token, seconds = seconds },
-    cb or function() end
-  )
+M.heartbeat = function(handle, token, seconds, handles, cb)
+  local body = { token = token, seconds = seconds }
+  handles = capped(handles)
+  if handles and #handles > 0 then
+    body.handles = handles
+  end
+  request("POST", "/v1/users/" .. handle .. "/heartbeat", body, cb or function() end)
 end
 
 M.delete = function(handle, token, cb)
@@ -72,7 +81,7 @@ M.delete = function(handle, token, cb)
 end
 
 M.status = function(handles, cb)
-  request("GET", "/v1/users?handles=" .. table.concat(handles, ","), nil, cb)
+  request("GET", "/v1/users?handles=" .. table.concat(capped(handles), ","), nil, cb)
 end
 
 M.leaderboard = function(opts, cb)

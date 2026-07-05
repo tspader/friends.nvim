@@ -1,11 +1,13 @@
 import { expect, setSystemTime, test } from "bun:test";
 import app from "../src/index";
-import { createLocalDb } from "../src/sqlite";
+import { createHub, type HubCore } from "../src/hub";
+import { createLocalDb, createLocalJournal } from "../src/sqlite";
 
 export interface Step {
   method: "GET" | "PUT" | "POST" | "DELETE";
   path: string;
   body?: unknown;
+  headers?: Record<string, string>;
   now?: number;
 }
 
@@ -21,20 +23,29 @@ export interface ApiTest {
   expect: ApiExpect;
 }
 
-async function runStep(env: { DB: D1Database }, step: Step): Promise<Response> {
+type TestEnv = { HUB: { idFromName: (name: string) => string; get: () => HubCore } };
+
+export function testEnv(): TestEnv {
+  const core = createHub(createLocalDb(), createLocalJournal(), () => {});
+  return { HUB: { idFromName: (name) => name, get: () => core } };
+}
+
+async function runStep(env: TestEnv, step: Step): Promise<Response> {
   if (step.now !== undefined) {
     setSystemTime(new Date(step.now * 1000));
   }
   const init: RequestInit = { method: step.method };
   if (step.body !== undefined) {
-    init.headers = { "content-type": "application/json" };
+    init.headers = { "content-type": "application/json", ...step.headers };
     init.body = JSON.stringify(step.body);
+  } else if (step.headers !== undefined) {
+    init.headers = step.headers;
   }
   return app.request(step.path, init, env);
 }
 
 async function runApiTest(t: ApiTest) {
-  const env = { DB: createLocalDb() };
+  const env = testEnv();
   try {
     for (const step of t.setup ?? []) {
       const res = await runStep(env, step);

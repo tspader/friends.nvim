@@ -7,6 +7,7 @@ local cached_parts = {}
 local cached_plain = ""
 local cached_native = ""
 local cached_users = {}
+local last_data = nil
 
 local rebuild = function()
   local opts = config.options.statusline
@@ -48,12 +49,19 @@ M.refresh = function(cb)
   require("friends.api").status(handles, function(data)
     if data and data.users then
       cached_users = data.users
+      last_data = vim.uv.now()
     end
     rebuild()
     if cb then
       cb()
     end
   end)
+end
+
+M.push = function(users)
+  cached_users = users
+  last_data = vim.uv.now()
+  rebuild()
 end
 
 M.users = function()
@@ -75,6 +83,14 @@ M.parts = function()
   return cached_parts
 end
 
+local tick = function()
+  local interval = config.options.status_interval * 1000
+  if last_data and (vim.uv.now() - last_data) < interval then
+    return
+  end
+  M.refresh()
+end
+
 M.start = function()
   if timer or config.options.status_interval <= 0 then
     return
@@ -82,7 +98,7 @@ M.start = function()
   M.refresh()
   timer = vim.uv.new_timer()
   local interval = config.options.status_interval * 1000
-  timer:start(interval, interval, vim.schedule_wrap(M.refresh))
+  timer:start(interval, interval, vim.schedule_wrap(tick))
 end
 
 M.stop = function()

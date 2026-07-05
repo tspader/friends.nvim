@@ -1,20 +1,22 @@
-import { apiTests } from "./executor";
+import { apiTests, type Step } from "./executor";
 
-// 2026-01-10T12:00:00Z
 const NOON = 1768046400;
 const DAY = 86400;
 
 const OTTER = { handle: "brave-otter-42", token: "otter-token-0001" };
 const LYNX = { handle: "wild-lynx-90", token: "lynx-token-00001" };
+const SNAIL = { handle: "slow-snail-01", token: "snail-token-0001" };
+const HARE = { handle: "fast-hare-02", token: "hare-token-00001" };
+const FOX = { handle: "mid-fox-03", token: "fox-token-000001" };
 
-const register = (u: typeof OTTER, extra?: object, now?: number) => ({
+const register = (u: typeof OTTER, extra?: object, now?: number): Step => ({
   method: "PUT" as const,
   path: `/api/v1/users/${u.handle}`,
   body: { token: u.token, ...extra },
   now,
 });
 
-const heartbeat = (u: typeof OTTER, seconds: number, now?: number) => ({
+const heartbeat = (u: typeof OTTER, seconds: number, now?: number): Step => ({
   method: "POST" as const,
   path: `/api/v1/users/${u.handle}/heartbeat`,
   body: { token: u.token, seconds },
@@ -80,15 +82,48 @@ apiTests({
     expect: { status: 400, body: { error: "invalid display_name" } },
   },
 
+  "register: rejects control characters in display_name": {
+    request: register(OTTER, { display_name: "evil\u001b[2Jname" }),
+    expect: { status: 400, body: { error: "invalid display_name" } },
+  },
+
+  "register: rejects whitespace-only display_name": {
+    request: register(OTTER, { display_name: "   " }),
+    expect: { status: 400, body: { error: "invalid display_name" } },
+  },
+
+  "register: trims display_name": {
+    request: register(OTTER, { display_name: "  Thomas  " }),
+    expect: { status: 200, body: { display_name: "Thomas" } },
+  },
+
+  "register: caps registrations per address": {
+    setup: Array.from({ length: 20 }, (_, i) =>
+      register({ handle: `sybil-user-${String(i).padStart(2, "0")}`, token: OTTER.token }),
+    ),
+    request: register({ handle: "sybil-user-20", token: OTTER.token }),
+    expect: { status: 429 },
+  },
+
+  "requests: reject oversized bodies": {
+    request: {
+      method: "PUT",
+      path: `/api/v1/users/${OTTER.handle}`,
+      body: { token: OTTER.token },
+      headers: { "content-length": "99999" },
+    },
+    expect: { status: 413 },
+  },
+
   "heartbeat: accumulates seconds": {
     setup: [register(OTTER, {}, NOON), heartbeat(OTTER, 60, NOON + 60)],
     request: heartbeat(OTTER, 45, NOON + 120),
     expect: { status: 200, body: { handle: OTTER.handle, total_seconds: 105, active: true } },
   },
 
-  "heartbeat: auto-registers unknown handle": {
+  "heartbeat: 404s an unknown handle": {
     request: heartbeat(LYNX, 30),
-    expect: { status: 200, body: { handle: LYNX.handle, total_seconds: 30, active: true } },
+    expect: { status: 404, body: { error: "not found" } },
   },
 
   "heartbeat: rejects the wrong token": {
@@ -102,15 +137,37 @@ apiTests({
   },
 
   "heartbeat: rate limits heartbeats closer than 15s": {
-    setup: [heartbeat(OTTER, 60, NOON)],
+    setup: [register(OTTER, {}, NOON), heartbeat(OTTER, 60, NOON)],
     request: heartbeat(OTTER, 10, NOON + 10),
     expect: { status: 429 },
   },
 
   "heartbeat: credits at most wall-clock time since the last one": {
-    setup: [heartbeat(OTTER, 300, NOON)],
+    setup: [register(OTTER, {}, NOON), heartbeat(OTTER, 300, NOON)],
     request: heartbeat(OTTER, 300, NOON + 60),
     expect: { status: 200, body: { total_seconds: 360 } },
+  },
+
+  "heartbeat: returns friend statuses when handles are sent": {
+    setup: [
+      register(OTTER, {}, NOON),
+      register(LYNX, {}, NOON),
+      heartbeat(LYNX, 60, NOON),
+    ],
+    request: {
+      method: "POST",
+      path: `/api/v1/users/${OTTER.handle}/heartbeat`,
+      body: { token: OTTER.token, seconds: 60, handles: [LYNX.handle, "no-such-user-00"] },
+      now: NOON + 60,
+    },
+    expect: {
+      status: 200,
+      body: {
+        handle: OTTER.handle,
+        total_seconds: 60,
+        users: [{ handle: LYNX.handle, total_seconds: 60, active: true }],
+      },
+    },
   },
 
   "heartbeat: rejects missing token": {
@@ -143,7 +200,7 @@ apiTests({
   },
 
   "delete: removes the user with the right token": {
-    setup: [heartbeat(OTTER, 60, NOON)],
+    setup: [register(OTTER, {}, NOON), heartbeat(OTTER, 60, NOON)],
     request: {
       method: "DELETE",
       path: `/api/v1/users/${OTTER.handle}`,
@@ -154,6 +211,7 @@ apiTests({
 
   "delete: leaves no trace behind": {
     setup: [
+      register(OTTER, {}, NOON),
       heartbeat(OTTER, 60, NOON),
       { method: "DELETE", path: `/api/v1/users/${OTTER.handle}`, body: { token: OTTER.token } },
     ],
@@ -200,7 +258,7 @@ apiTests({
   },
 
   "status: reports recent heartbeat as active": {
-    setup: [heartbeat(LYNX, 60, NOON)],
+    setup: [register(LYNX, {}, NOON), heartbeat(LYNX, 60, NOON)],
     request: { method: "GET", path: `/api/v1/users?handles=${LYNX.handle}`, now: NOON + 60 },
     expect: {
       status: 200,
@@ -211,8 +269,8 @@ apiTests({
   },
 
   "status: reports stale heartbeat as inactive": {
-    setup: [heartbeat(LYNX, 60, NOON)],
-    request: { method: "GET", path: `/api/v1/users?handles=${LYNX.handle}`, now: NOON + 121 },
+    setup: [register(LYNX, {}, NOON), heartbeat(LYNX, 60, NOON)],
+    request: { method: "GET", path: `/api/v1/users?handles=${LYNX.handle}`, now: NOON + 301 },
     expect: { status: 200, body: { users: [{ handle: LYNX.handle, active: false }] } },
   },
 
@@ -241,9 +299,12 @@ apiTests({
 
   "leaderboard: ranks all-time totals": {
     setup: [
-      heartbeat({ handle: "slow-snail-01", token: "snail-token-0001" }, 60),
-      heartbeat({ handle: "fast-hare-02", token: "hare-token-00001" }, 240),
-      heartbeat({ handle: "mid-fox-03", token: "fox-token-000001" }, 120),
+      register(SNAIL, {}, NOON),
+      register(HARE, {}, NOON),
+      register(FOX, {}, NOON),
+      heartbeat(SNAIL, 60, NOON),
+      heartbeat(HARE, 240, NOON),
+      heartbeat(FOX, 120, NOON),
     ],
     request: { method: "GET", path: "/api/v1/leaderboard" },
     expect: {
@@ -251,9 +312,9 @@ apiTests({
       body: {
         period: "all",
         entries: [
-          { rank: 1, handle: "fast-hare-02", seconds: 240 },
-          { rank: 2, handle: "mid-fox-03", seconds: 120 },
-          { rank: 3, handle: "slow-snail-01", seconds: 60 },
+          { rank: 1, handle: HARE.handle, seconds: 240 },
+          { rank: 2, handle: FOX.handle, seconds: 120 },
+          { rank: 3, handle: SNAIL.handle, seconds: 60 },
         ],
       },
     },
@@ -261,8 +322,10 @@ apiTests({
 
   "leaderboard: breaks ties by handle": {
     setup: [
-      heartbeat({ handle: "zed-zebra-02", token: "zebra-token-0001" }, 60),
-      heartbeat({ handle: "ace-asp-01", token: "asp-token-000001" }, 60),
+      register({ handle: "zed-zebra-02", token: "zebra-token-0001" }, {}, NOON),
+      register({ handle: "ace-asp-01", token: "asp-token-000001" }, {}, NOON),
+      heartbeat({ handle: "zed-zebra-02", token: "zebra-token-0001" }, 60, NOON),
+      heartbeat({ handle: "ace-asp-01", token: "asp-token-000001" }, 60, NOON),
     ],
     request: { method: "GET", path: "/api/v1/leaderboard" },
     expect: {
@@ -278,9 +341,11 @@ apiTests({
 
   "leaderboard: today excludes yesterday's usage": {
     setup: [
-      heartbeat({ handle: "slow-snail-01", token: "snail-token-0001" }, 300, NOON - DAY),
-      heartbeat({ handle: "slow-snail-01", token: "snail-token-0001" }, 60, NOON),
-      heartbeat({ handle: "fast-hare-02", token: "hare-token-00001" }, 120, NOON),
+      register(SNAIL, {}, NOON - DAY),
+      register(HARE, {}, NOON - DAY),
+      heartbeat(SNAIL, 300, NOON - DAY),
+      heartbeat(SNAIL, 60, NOON),
+      heartbeat(HARE, 120, NOON),
     ],
     request: { method: "GET", path: "/api/v1/leaderboard?period=today", now: NOON },
     expect: {
@@ -288,8 +353,8 @@ apiTests({
       body: {
         period: "today",
         entries: [
-          { rank: 1, handle: "fast-hare-02", seconds: 120 },
-          { rank: 2, handle: "slow-snail-01", seconds: 60 },
+          { rank: 1, handle: HARE.handle, seconds: 120 },
+          { rank: 2, handle: SNAIL.handle, seconds: 60 },
         ],
       },
     },
@@ -297,36 +362,40 @@ apiTests({
 
   "leaderboard: week spans seven days and drops older usage": {
     setup: [
-      heartbeat({ handle: "slow-snail-01", token: "snail-token-0001" }, 300, NOON - 7 * DAY),
-      heartbeat({ handle: "slow-snail-01", token: "snail-token-0001" }, 60, NOON - 6 * DAY),
-      heartbeat({ handle: "slow-snail-01", token: "snail-token-0001" }, 30, NOON),
+      register(SNAIL, {}, NOON - 7 * DAY),
+      heartbeat(SNAIL, 300, NOON - 7 * DAY),
+      heartbeat(SNAIL, 60, NOON - 6 * DAY),
+      heartbeat(SNAIL, 30, NOON),
     ],
     request: { method: "GET", path: "/api/v1/leaderboard?period=week", now: NOON },
     expect: {
       status: 200,
       body: {
         period: "week",
-        entries: [{ rank: 1, handle: "slow-snail-01", seconds: 90 }],
+        entries: [{ rank: 1, handle: SNAIL.handle, seconds: 90 }],
       },
     },
   },
 
   "leaderboard: filters to the given handles": {
     setup: [
-      heartbeat({ handle: "slow-snail-01", token: "snail-token-0001" }, 60),
-      heartbeat({ handle: "fast-hare-02", token: "hare-token-00001" }, 240),
-      heartbeat({ handle: "mid-fox-03", token: "fox-token-000001" }, 120),
+      register(SNAIL, {}, NOON),
+      register(HARE, {}, NOON),
+      register(FOX, {}, NOON),
+      heartbeat(SNAIL, 60, NOON),
+      heartbeat(HARE, 240, NOON),
+      heartbeat(FOX, 120, NOON),
     ],
     request: {
       method: "GET",
-      path: "/api/v1/leaderboard?handles=slow-snail-01,mid-fox-03",
+      path: `/api/v1/leaderboard?handles=${SNAIL.handle},${FOX.handle}`,
     },
     expect: {
       status: 200,
       body: {
         entries: [
-          { rank: 1, handle: "mid-fox-03", seconds: 120 },
-          { rank: 2, handle: "slow-snail-01", seconds: 60 },
+          { rank: 1, handle: FOX.handle, seconds: 120 },
+          { rank: 2, handle: SNAIL.handle, seconds: 60 },
         ],
       },
     },
@@ -334,29 +403,33 @@ apiTests({
 
   "leaderboard: filters to the given handles within a period": {
     setup: [
-      heartbeat({ handle: "slow-snail-01", token: "snail-token-0001" }, 60, NOON),
-      heartbeat({ handle: "fast-hare-02", token: "hare-token-00001" }, 240, NOON),
+      register(SNAIL, {}, NOON),
+      register(HARE, {}, NOON),
+      heartbeat(SNAIL, 60, NOON),
+      heartbeat(HARE, 240, NOON),
     ],
     request: {
       method: "GET",
-      path: "/api/v1/leaderboard?period=today&handles=slow-snail-01",
+      path: `/api/v1/leaderboard?period=today&handles=${SNAIL.handle}`,
       now: NOON,
     },
     expect: {
       status: 200,
-      body: { entries: [{ rank: 1, handle: "slow-snail-01", seconds: 60 }] },
+      body: { entries: [{ rank: 1, handle: SNAIL.handle, seconds: 60 }] },
     },
   },
 
   "leaderboard: respects limit": {
     setup: [
-      heartbeat({ handle: "slow-snail-01", token: "snail-token-0001" }, 60),
-      heartbeat({ handle: "fast-hare-02", token: "hare-token-00001" }, 240),
+      register(SNAIL, {}, NOON),
+      register(HARE, {}, NOON),
+      heartbeat(SNAIL, 60, NOON),
+      heartbeat(HARE, 240, NOON),
     ],
     request: { method: "GET", path: "/api/v1/leaderboard?limit=1" },
     expect: {
       status: 200,
-      body: { entries: [{ rank: 1, handle: "fast-hare-02" }] },
+      body: { entries: [{ rank: 1, handle: HARE.handle }] },
     },
   },
 

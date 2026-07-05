@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { Journal } from "./hub";
 
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "migrations");
 
@@ -26,6 +27,16 @@ class Stmt {
   async run(): Promise<unknown> {
     return this.db.query(this.sql).run(...(this.params as never[]));
   }
+}
+
+export function createLocalJournal(): Journal {
+  const db = new Database(":memory:");
+  return {
+    exec: (sql: string, ...params: (string | number | null)[]) => {
+      const rows = db.query(sql).all(...(params as never[])) as Record<string, unknown>[];
+      return { toArray: () => rows };
+    },
+  };
 }
 
 export function createLocalDb(): D1Database {

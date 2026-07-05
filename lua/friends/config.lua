@@ -12,9 +12,9 @@ M.defaults = function()
     -- status keep working but you never appear in them.
     track = true,
     -- Seconds between heartbeats while you are typing.
-    heartbeat_interval = 60,
+    heartbeat_interval = 120,
     -- Seconds between friend status refreshes for the statusline. 0 disables.
-    status_interval = 60,
+    status_interval = 120,
     -- Request timeout in milliseconds.
     request_timeout = 5000,
     statusline = {

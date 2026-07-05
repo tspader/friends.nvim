@@ -1,4 +1,4 @@
-*friends.txt*  See when your friends are hacking, and out-hack them.
+*friends.txt* The Myspace of Neovim
 
 ==============================================================================
 CONTENTS                                                     *friends-contents*
@@ -12,18 +12,6 @@ CONTENTS                                                     *friends-contents*
 ==============================================================================
 1. INTRODUCTION                                                 *friends-intro*
 
-friends.nvim tracks when you are active in Neovim (via keypresses), tallies
-your hours on a shared backend, and shows you what your friends are up to:
-a leaderboard, and statusline dots that light up while they type.
-
-On first launch a random handle (like `brave-otter-42`) plus a secret token
-are generated locally and registered with the backend. The handle is your
-identity; share it with friends so they can `:Friends add` you. The token
-(never shared) is what lets you keep the handle: only its holder can post
-activity or rename as you. Set a human name with `:Friends name`. To reuse
-an identity on another machine, see |:Friends-key| and |:Friends-claim|.
-
-Requires nvim 0.10+ and curl. No other dependencies.
 
 ==============================================================================
 2. SETUP                                                        *friends-setup*
@@ -44,9 +32,9 @@ The defaults: >lua
     -- Send activity heartbeats. Disable to lurk.
     track = true,
     -- Seconds between heartbeats while you are typing.
-    heartbeat_interval = 60,
+    heartbeat_interval = 120,
     -- Seconds between friend status refreshes for the statusline. 0 disables.
-    status_interval = 60,
+    status_interval = 120,
     -- Request timeout in milliseconds.
     request_timeout = 5000,
     statusline = {

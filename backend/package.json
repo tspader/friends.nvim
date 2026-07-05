@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "bun build src/index.ts --outdir dist --target browser --format esm --minify && mv dist/index.js dist/worker.js",
+    "build": "bun build src/worker.ts --outdir dist --target browser --format esm --minify --external cloudflare:workers",
     "test": "bun test",
     "serve": "bun run serve.ts",
     "dev": "wrangler dev",

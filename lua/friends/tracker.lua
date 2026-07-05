@@ -18,15 +18,27 @@ local flush = function()
   end
   active = false
   local identity = require("friends.identity").get()
-  require("friends.api").heartbeat(identity.handle, identity.token, math.min(300, elapsed), function(_, status)
-    if status == 403 and not warned_taken then
-      warned_taken = true
-      require("friends.util").notify(
-        identity.handle .. " is owned by another machine's key — fix with :Friends claim",
-        vim.log.levels.WARN
-      )
+  local handles = require("friends.roster").all()
+  require("friends.api").heartbeat(
+    identity.handle,
+    identity.token,
+    math.min(300, elapsed),
+    handles,
+    function(data, status)
+      if data and data.users then
+        require("friends.status").push(data.users)
+      end
+      if status == 404 then
+        require("friends.identity").register()
+      elseif status == 403 and not warned_taken then
+        warned_taken = true
+        require("friends.util").notify(
+          identity.handle .. " is owned by another machine's key — fix with :Friends claim",
+          vim.log.levels.WARN
+        )
+      end
     end
-  end)
+  )
 end
 
 M.running = function()
