@@ -27,7 +27,7 @@ local await = function(fn)
   return out, code
 end
 
-require("friends").setup({ url = url, heartbeat_interval = 1, status_interval = 0 })
+require("friends").setup({ url = url, status_interval = 0 })
 require("friends").start()
 local me = require("friends").handle()
 check("identity generated", type(me) == "string" and #me > 0, tostring(me))

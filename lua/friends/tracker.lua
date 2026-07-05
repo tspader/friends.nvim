@@ -1,10 +1,11 @@
-local config = require("friends.config")
-
 local M = {}
+
+local HEARTBEAT_INTERVAL = tonumber(vim.env.FRIENDS_HEARTBEAT_INTERVAL) or 120
+local IDLE_TIMEOUT = 300
 
 local ns = vim.api.nvim_create_namespace("friends_tracker")
 local timer = nil
-local active = false
+local last_input = nil
 local last_flush = nil
 
 local warned_taken = false
@@ -13,10 +14,9 @@ local flush = function()
   local now = vim.uv.now()
   local elapsed = math.floor((now - (last_flush or now)) / 1000)
   last_flush = now
-  if not active or elapsed < 1 then
+  if not last_input or (now - last_input) > IDLE_TIMEOUT * 1000 or elapsed < 1 then
     return
   end
-  active = false
   local identity = require("friends.identity").get()
   local handles = require("friends.roster").all()
   require("friends.api").heartbeat(
@@ -49,16 +49,22 @@ M.start = function()
   if timer then
     return
   end
-  vim.on_key(function()
-    active = true
-  end, ns)
+  local mark = function()
+    last_input = vim.uv.now()
+  end
+  vim.on_key(mark, ns)
   last_flush = vim.uv.now()
   timer = vim.uv.new_timer()
-  local interval = config.options.heartbeat_interval * 1000
+  local interval = HEARTBEAT_INTERVAL * 1000
   timer:start(interval, interval, vim.schedule_wrap(flush))
 
+  local group = vim.api.nvim_create_augroup("FriendsTracker", {})
+  vim.api.nvim_create_autocmd({ "CursorMoved", "FocusGained" }, {
+    group = group,
+    callback = mark,
+  })
   vim.api.nvim_create_autocmd("VimLeavePre", {
-    group = vim.api.nvim_create_augroup("FriendsTracker", {}),
+    group = group,
     callback = function()
       pcall(flush)
       -- Give the curl job a beat to get the request out the door.
@@ -75,7 +81,8 @@ M.stop = function()
   timer:stop()
   timer:close()
   timer = nil
-  active = false
+  last_input = nil
+  vim.api.nvim_clear_autocmds({ group = "FriendsTracker" })
 end
 
 return M

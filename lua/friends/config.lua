@@ -11,8 +11,6 @@ M.defaults = function()
     -- Send activity heartbeats. Disable to lurk: leaderboard and friend
     -- status keep working but you never appear in them.
     track = true,
-    -- Seconds between heartbeats while you are typing.
-    heartbeat_interval = 120,
     -- Seconds between friend status refreshes for the statusline. 0 disables.
     status_interval = 120,
     -- Request timeout in milliseconds.

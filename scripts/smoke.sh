@@ -14,6 +14,7 @@ sleep 0.5
 SANDBOX=$(mktemp -d)
 XDG_DATA_HOME="$SANDBOX/data" XDG_STATE_HOME="$SANDBOX/state" \
   FRIENDS_URL="http://127.0.0.1:$PORT/api" \
+  FRIENDS_HEARTBEAT_INTERVAL=1 \
   nvim --clean --headless \
   --cmd "set rtp+=$ROOT" \
   --cmd "let g:friends_autostart = v:false" \
