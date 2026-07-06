@@ -5,8 +5,7 @@ local M = {}
 
 local ns = vim.api.nvim_create_namespace("friends_ui")
 
-local highlight_icons = function(buf, lines, start_lnum)
-  start_lnum = start_lnum or 0
+local highlight_icons = function(buf, lines)
   local icons = {
     { config.options.statusline.active, "FriendsActive" },
     { config.options.statusline.idle, "FriendsIdle" },
@@ -19,7 +18,7 @@ local highlight_icons = function(buf, lines, start_lnum)
         if not s then
           break
         end
-        vim.api.nvim_buf_set_extmark(buf, ns, start_lnum + lnum - 1, s - 1, { end_col = e, hl_group = spec[2] })
+        vim.api.nvim_buf_set_extmark(buf, ns, lnum - 1, s - 1, { end_col = e, hl_group = spec[2] })
         from = e + 1
       end
     end
@@ -40,11 +39,13 @@ local open_float = function(title, lines, float_opts)
     width = math.max(width, vim.fn.strdisplaywidth(line))
   end
   width = math.min(math.max(width + 2, 40), vim.o.columns - 4)
-  local height = math.min(#lines, vim.o.lines - 6)
+  -- reserve: screen rows kept free below the float for a companion window.
+  local reserve = float_opts.reserve or 0
+  local height = math.min(#lines, math.max(1, vim.o.lines - 6 - reserve))
 
   local win = vim.api.nvim_open_win(buf, true, {
     relative = "editor",
-    row = math.floor((vim.o.lines - height) / 2) - 1,
+    row = math.floor((vim.o.lines - height - reserve) / 2) - 1,
     col = math.floor((vim.o.columns - width) / 2),
     width = width,
     height = height,
@@ -120,8 +121,6 @@ M.leaderboard = function()
   end)
 end
 
-local DETAIL_ROWS = 1
-
 local detail_fields = function(entry)
   if not entry.user then
     return { { "status", "unregistered" } }
@@ -131,18 +130,12 @@ local detail_fields = function(entry)
   }
 end
 
-local render_detail = function(buf, win, entries, index)
-  local lines = { string.rep("─", vim.api.nvim_win_get_width(win)) }
+local render_detail = function(buf, entries, index)
+  local lines = {}
   for _, field in ipairs(detail_fields(entries[index])) do
     table.insert(lines, string.format(" %s: %s", field[1], field[2]))
   end
-  while #lines < 1 + DETAIL_ROWS do
-    table.insert(lines, "")
-  end
-  vim.bo[buf].modifiable = true
-  vim.api.nvim_buf_set_lines(buf, #entries, -1, false, lines)
-  vim.bo[buf].modifiable = false
-  highlight_icons(buf, lines, #entries)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 end
 
 M.list = function()
@@ -166,24 +159,46 @@ M.list = function()
       table.insert(lines, string.format(" %s %-40s %10s", icon, name, total))
       table.insert(entries, { handle = handle, user = user })
     end
-    for _ = 1, 1 + DETAIL_ROWS do
-      table.insert(lines, "")
+
+    local detail_rows = 1
+    for _, entry in ipairs(entries) do
+      detail_rows = math.max(detail_rows, #detail_fields(entry))
     end
-    local buf, win = open_float("friends.nvim — friends", lines)
-    render_detail(buf, win, entries, 1)
+
+    local buf, win = open_float("friends.nvim — friends", lines, { reserve = detail_rows + 2 })
+    local cfg = vim.api.nvim_win_get_config(win)
+
+    local detail_buf = vim.api.nvim_create_buf(false, true)
+    vim.bo[detail_buf].bufhidden = "wipe"
+    local detail_win = vim.api.nvim_open_win(detail_buf, false, {
+      relative = "editor",
+      row = cfg.row + cfg.height + 2,
+      col = cfg.col,
+      width = cfg.width,
+      height = detail_rows,
+      style = "minimal",
+      border = "rounded",
+      focusable = false,
+    })
+    render_detail(detail_buf, entries, 1)
 
     local last_index = 1
     vim.api.nvim_create_autocmd("CursorMoved", {
       buffer = buf,
       callback = function()
-        local cur = vim.api.nvim_win_get_cursor(win)
-        local index = math.min(cur[1], #entries)
-        if index ~= cur[1] then
-          vim.api.nvim_win_set_cursor(win, { index, cur[2] })
-        end
-        if index ~= last_index then
+        local index = vim.api.nvim_win_get_cursor(0)[1]
+        if index ~= last_index and vim.api.nvim_win_is_valid(detail_win) then
           last_index = index
-          render_detail(buf, win, entries, index)
+          render_detail(detail_buf, entries, index)
+        end
+      end,
+    })
+    vim.api.nvim_create_autocmd("WinClosed", {
+      pattern = tostring(win),
+      once = true,
+      callback = function()
+        if vim.api.nvim_win_is_valid(detail_win) then
+          vim.api.nvim_win_close(detail_win, true)
         end
       end,
     })
