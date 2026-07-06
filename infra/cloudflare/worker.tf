@@ -52,8 +52,8 @@ resource "cloudflare_workers_script" "friends" {
   ]
 
   migrations = {
-    new_tag            = "v1"
-    new_sqlite_classes = ["Hub"]
+    old_tag = "v1"
+    new_tag = "v1"
   }
 
   observability = {
