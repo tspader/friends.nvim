@@ -209,30 +209,6 @@ M.leaderboard = function(opts)
         end,
         desc = "previous period",
       },
-      t = {
-        function()
-          switch(function()
-            board.set("period", "today")
-          end)
-        end,
-        desc = "period: today",
-      },
-      w = {
-        function()
-          switch(function()
-            board.set("period", "week")
-          end)
-        end,
-        desc = "period: week",
-      },
-      A = {
-        function()
-          switch(function()
-            board.set("period", "all")
-          end)
-        end,
-        desc = "period: all",
-      },
       p = {
         function()
           vim.ui.select(board.axes.period, { prompt = "leaderboard period" }, function(choice)

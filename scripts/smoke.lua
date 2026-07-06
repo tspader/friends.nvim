@@ -162,23 +162,23 @@ if target then
   end)
   check("follow from leaderboard", vim.tbl_contains(roster.all(), FRIEND))
 
-  vim.api.nvim_feedkeys("t", "tx", false)
-  check("period key retitles float", float_title():find("today", 1, true) ~= nil, float_title())
+  local tab = vim.api.nvim_replace_termcodes("<Tab>", true, false, true)
+  vim.api.nvim_feedkeys(tab, "tx", false)
+  check("tab cycles period and retitles float", float_title():find("all", 1, true) ~= nil, float_title())
   vim.wait(5000, function()
     local first = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1] or ""
     return not first:find("fetching", 1, true)
   end)
-  local today_shows_friend = false
+  local switched_shows_friend = false
   for _, l in ipairs(vim.api.nvim_buf_get_lines(0, 0, -1, false)) do
     if l:find("Smokey", 1, true) then
-      today_shows_friend = true
+      switched_shows_friend = true
     end
   end
-  check("today leaderboard renders entries", today_shows_friend)
+  check("switched leaderboard renders entries", switched_shows_friend)
 
-  local tab = vim.api.nvim_replace_termcodes("<Tab>", true, false, true)
   vim.api.nvim_feedkeys(tab, "tx", false)
-  check("tab cycles period", float_title():find("week", 1, true) ~= nil, float_title())
+  check("tab cycle wraps around", float_title():find("today", 1, true) ~= nil, float_title())
   vim.cmd("close")
 end
 

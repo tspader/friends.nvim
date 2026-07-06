@@ -56,8 +56,8 @@ The defaults: >lua
                                                                      *:Friends*
 :Friends                Show the leaderboard. Press `a` on a row to follow
                         that person; `q` closes. Switch the ranking period
-                        without closing: `t`/`w`/`A` jump to today/week/all,
-                        <Tab>/<S-Tab> cycle, `p` picks via |vim.ui.select()|.
+                        without closing: <Tab>/<S-Tab> cycle through
+                        today/week/all, `p` picks one via |vim.ui.select()|.
                         The chosen period sticks for the rest of the session.
                                                               *:Friends-board*
 :Friends board [value ...]
