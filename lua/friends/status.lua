@@ -68,6 +68,12 @@ M.users = function()
   return cached_users
 end
 
+-- Whether any status data has arrived yet; while false, a handle missing
+-- from users() means "unknown", not "unregistered".
+M.fetched = function()
+  return last_data ~= nil
+end
+
 -- Highlighted by default (use inside '%{%...%}' in 'statusline').
 -- Pass { hl = false } for the plain text.
 M.statusline = function(opts)
