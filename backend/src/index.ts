@@ -1,7 +1,8 @@
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import type { Context } from "hono";
+import { cache } from "hono/cache";
+import type { Context, MiddlewareHandler } from "hono";
 import type { User } from "./db";
 import { isError, type HubCore } from "./hub";
 import {
@@ -143,7 +144,11 @@ app.get("/v1/users", zValidator("query", StatusQuery, onInvalid), async (c) => {
   return c.json({ users: users.map((user) => userJson(user, at)) });
 });
 
-app.get("/v1/leaderboard", zValidator("query", LeaderboardQuery, onInvalid), async (c) => {
+const leaderboardCache: MiddlewareHandler = globalThis.caches
+  ? cache({ cacheName: "friends-api", cacheControl: "max-age=15" })
+  : (_c, next) => next();
+
+app.get("/v1/leaderboard", leaderboardCache, zValidator("query", LeaderboardQuery, onInvalid), async (c) => {
   const { period, limit, handles } = c.req.valid("query");
   const { entries, at } = await hub(c).leaderboard({ period, limit, handles });
   return c.json({
