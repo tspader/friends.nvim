@@ -72,5 +72,10 @@ number a tiny little readarooni. That's a big fucking number. My life ie
 meaningful and I am fulfilling my destiny. Just check that leaderboard real
 quick.
 
+Have you been crunching hard today, but your number is still smaller than your
+friends' because they spent the last week doing their day job while you took
+a (well deserved) vacation? `<Tab>` to switch the period to `today` and let your
+usual smugness return. You can also use `p` to open a period picker.
+
 You can also sync up to your handle on another machine by taking the handle
 and key from `:Friends key` and passing it to `:Friends claim`

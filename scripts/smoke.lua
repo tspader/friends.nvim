@@ -131,7 +131,11 @@ check(
 roster.remove(FRIEND)
 require("friends.ui").leaderboard()
 vim.wait(5000, function()
-  return vim.bo.filetype == "friends"
+  if vim.bo.filetype ~= "friends" then
+    return false
+  end
+  local first = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1] or ""
+  return not first:find("fetching", 1, true)
 end)
 local target
 for i, l in ipairs(vim.api.nvim_buf_get_lines(0, 0, -1, false)) do
@@ -140,6 +144,16 @@ for i, l in ipairs(vim.api.nvim_buf_get_lines(0, 0, -1, false)) do
   end
 end
 check("leaderboard row shows friend", target ~= nil)
+
+local float_title = function()
+  local title = vim.api.nvim_win_get_config(0).title or {}
+  local text = ""
+  for _, chunk in ipairs(title) do
+    text = text .. chunk[1]
+  end
+  return text
+end
+
 if target then
   vim.api.nvim_win_set_cursor(0, { target, 0 })
   vim.api.nvim_feedkeys("a", "tx", false)
@@ -147,8 +161,62 @@ if target then
     return vim.tbl_contains(roster.all(), FRIEND)
   end)
   check("follow from leaderboard", vim.tbl_contains(roster.all(), FRIEND))
+
+  local tab = vim.api.nvim_replace_termcodes("<Tab>", true, false, true)
+  vim.api.nvim_feedkeys(tab, "tx", false)
+  check("tab cycles period and retitles float", float_title():find("all", 1, true) ~= nil, float_title())
+  vim.wait(5000, function()
+    local first = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1] or ""
+    return not first:find("fetching", 1, true)
+  end)
+  local switched_shows_friend = false
+  for _, l in ipairs(vim.api.nvim_buf_get_lines(0, 0, -1, false)) do
+    if l:find("Smokey", 1, true) then
+      switched_shows_friend = true
+    end
+  end
+  check("switched leaderboard renders entries", switched_shows_friend)
+
+  vim.api.nvim_feedkeys(tab, "tx", false)
+  check("tab cycle wraps around", float_title():find("today", 1, true) ~= nil, float_title())
   vim.cmd("close")
 end
+
+local close_float = function()
+  if vim.bo.filetype == "friends" then
+    vim.cmd("close")
+  end
+end
+
+vim.cmd("Friends board all")
+vim.wait(5000, function()
+  return vim.bo.filetype == "friends"
+end)
+check("Friends board opens requested period", float_title():find("all", 1, true) ~= nil, float_title())
+close_float()
+
+vim.cmd("Friends board active_time")
+vim.wait(5000, function()
+  return vim.bo.filetype == "friends"
+end)
+check("metric value accepted", vim.bo.filetype == "friends")
+check("period persists across reopen", float_title():find("all", 1, true) ~= nil, float_title())
+close_float()
+
+local notify_msg
+local orig_notify = vim.notify
+vim.notify = function(msg)
+  notify_msg = msg
+end
+vim.cmd("Friends board month")
+vim.wait(500)
+vim.notify = orig_notify
+check(
+  "invalid board value rejected",
+  notify_msg ~= nil and notify_msg:find("invalid", 1, true) ~= nil,
+  tostring(notify_msg)
+)
+check("invalid board value opens no float", vim.bo.filetype ~= "friends")
 
 local identity = require("friends.identity")
 local claim_result

@@ -25,6 +25,7 @@ local highlight_icons = function(buf, lines)
   end
 end
 
+-- reserve: screen rows kept free below the float for a companion window.
 local float_geometry = function(lines, reserve)
   local width = 0
   for _, line in ipairs(lines) do
@@ -68,8 +69,10 @@ local open_float = function(title, lines, float_opts)
   for _, key in ipairs({ "q", "<Esc>" }) do
     vim.keymap.set("n", key, "<cmd>close<cr>", { buffer = buf, nowait = true })
   end
-  for key, fn in pairs(float_opts.keys or {}) do
-    vim.keymap.set("n", key, fn, { buffer = buf, nowait = true })
+  for key, spec in pairs(float_opts.keys or {}) do
+    local fn = type(spec) == "function" and spec or spec[1]
+    local desc = type(spec) == "table" and spec.desc or nil
+    vim.keymap.set("n", key, fn, { buffer = buf, nowait = true, desc = desc })
   end
 
   return buf, win
@@ -93,65 +96,135 @@ local update_float = function(buf, win, lines, reserve)
   end
 end
 
-M.leaderboard = function()
-  local opts = config.options.leaderboard
-  local me = require("friends.identity").get().handle
-  local request = { period = opts.period, limit = opts.limit }
-  if opts.friends_only then
-    local handles = require("friends.roster").all()
-    table.insert(handles, me)
-    request.handles = handles
+M.leaderboard = function(opts)
+  local board = require("friends.board")
+  for axis in pairs(board.axes) do
+    local value = opts and opts[axis]
+    if value and not board.set(axis, value) then
+      util.notify(
+        ("invalid %s '%s' (valid: %s)"):format(axis, value, table.concat(board.axes[axis], ", ")),
+        vim.log.levels.ERROR
+      )
+      return
+    end
   end
 
+  local cfg = config.options.leaderboard
+  local me = require("friends.identity").get().handle
   local entries = {}
-  local buf, win = open_float("friends.nvim — " .. opts.period, { " fetching leaderboard…" }, {
-    footer = "a: follow · q: close",
+  local generation = 0
+  local buf, win
+
+  local fetch = function()
+    generation = generation + 1
+    local gen = generation
+    local request = { period = board.get("period"), limit = cfg.limit }
+    if cfg.friends_only then
+      local handles = require("friends.roster").all()
+      table.insert(handles, me)
+      request.handles = handles
+    end
+    require("friends.api").leaderboard(request, function(data)
+      -- Drop responses from superseded fetches so rapid period switches
+      -- never render a stale period, and bail if the float was closed.
+      if gen ~= generation or not vim.api.nvim_buf_is_valid(buf) then
+        return
+      end
+      if not data then
+        util.notify("leaderboard failed: " .. (require("friends.api").last_error or "?"), vim.log.levels.ERROR)
+        update_float(buf, win, { " leaderboard failed" })
+        return
+      end
+      local lines = {}
+      for i, entry in ipairs(data.entries) do
+        entries[i] = entry
+        local name = entry.display_name or entry.handle
+        local you = entry.handle == me and "  (you)" or ""
+        table.insert(
+          lines,
+          string.format(
+            " %2d. %s %-24s %10s%s",
+            entry.rank,
+            entry.active and config.options.statusline.active or " ",
+            name,
+            util.duration(entry.seconds),
+            you
+          )
+        )
+      end
+      if #lines == 0 then
+        lines = { " nobody here yet — get typing" }
+      end
+      update_float(buf, win, lines)
+    end)
+  end
+
+  local switch = function(change)
+    change()
+    -- Clear in place: `entries` is the follow keymap's upvalue, and stale
+    -- rows must not be followable while the placeholder is shown.
+    for i = #entries, 1, -1 do
+      entries[i] = nil
+    end
+    if vim.api.nvim_win_is_valid(win) then
+      vim.api.nvim_win_set_config(win, {
+        title = " friends.nvim — " .. board.get("period") .. " ",
+        title_pos = "center",
+      })
+    end
+    update_float(buf, win, { " fetching leaderboard…" })
+    fetch()
+  end
+
+  buf, win = open_float("friends.nvim — " .. board.get("period"), { " fetching leaderboard…" }, {
+    footer = "a follow · <Tab> period · q close",
     keys = {
-      a = function()
-        local entry = entries[vim.api.nvim_win_get_cursor(0)[1]]
-        if not entry then
-          return
-        end
-        if entry.handle == me then
-          util.notify("that's you")
-          return
-        end
-        require("friends.roster").add(entry.handle)
-      end,
+      a = {
+        function()
+          local entry = entries[vim.api.nvim_win_get_cursor(0)[1]]
+          if not entry then
+            return
+          end
+          if entry.handle == me then
+            util.notify("that's you")
+            return
+          end
+          require("friends.roster").add(entry.handle)
+        end,
+        desc = "follow user",
+      },
+      ["<Tab>"] = {
+        function()
+          switch(function()
+            board.cycle("period", 1)
+          end)
+        end,
+        desc = "next period",
+      },
+      ["<S-Tab>"] = {
+        function()
+          switch(function()
+            board.cycle("period", -1)
+          end)
+        end,
+        desc = "previous period",
+      },
+      p = {
+        function()
+          vim.ui.select(board.axes.period, { prompt = "leaderboard period" }, function(choice)
+            if choice then
+              switch(function()
+                board.set("period", choice)
+              end)
+            end
+          end)
+        end,
+        desc = "pick period",
+      },
     },
   })
 
-  require("friends.api").leaderboard(request, function(data)
-    if not vim.api.nvim_buf_is_valid(buf) then
-      return
-    end
-    if not data then
-      util.notify("leaderboard failed: " .. (require("friends.api").last_error or "?"), vim.log.levels.ERROR)
-      update_float(buf, win, { " leaderboard failed" })
-      return
-    end
-    local lines = {}
-    for i, entry in ipairs(data.entries) do
-      entries[i] = entry
-      local name = entry.display_name or entry.handle
-      local you = entry.handle == me and "  (you)" or ""
-      table.insert(
-        lines,
-        string.format(
-          " %2d. %s %-24s %10s%s",
-          entry.rank,
-          entry.active and config.options.statusline.active or " ",
-          name,
-          util.duration(entry.seconds),
-          you
-        )
-      )
-    end
-    if #lines == 0 then
-      lines = { " nobody here yet — get typing" }
-    end
-    update_float(buf, win, lines)
-  end)
+  fetch()
 end
 
 local detail_fields = function(entry)
