@@ -28,6 +28,21 @@ local subcommands = {
       require("friends.ui").list()
     end,
   },
+  board = {
+    args = true,
+    impl = function(args)
+      local opts = {}
+      for _, value in ipairs(args) do
+        local axis = require("friends.board").axis_of(value)
+        if not axis then
+          util.notify("invalid leaderboard option: " .. value, vim.log.levels.ERROR)
+          return
+        end
+        opts[axis] = value
+      end
+      require("friends.ui").leaderboard(opts)
+    end,
+  },
   name = {
     args = true,
     impl = function(args)
@@ -100,6 +115,15 @@ M.complete = function(arglead, line)
       return vim.tbl_filter(function(h)
         return vim.startswith(h, arglead)
       end, require("friends.roster").all())
+    end
+    if words[2] == "board" then
+      local values = {}
+      for _, axis_values in pairs(require("friends.board").axes) do
+        vim.list_extend(values, axis_values)
+      end
+      return vim.tbl_filter(function(v)
+        return vim.startswith(v, arglead)
+      end, values)
     end
     return {}
   end

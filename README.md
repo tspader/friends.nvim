@@ -72,5 +72,14 @@ number a tiny little readarooni. That's a big fucking number. My life ie
 meaningful and I am fulfilling my destiny. Just check that leaderboard real
 quick.
 
+Have you been crunching hard today, but your number is still smaller than your
+friends' because they spent the last week doing their day job while you took
+a (well deserved) vacation? Hit `t` to switch the ranking period to `today` and
+let your usual smugness return.
+
+You can directly switch the ranking period with `t`/`w`/`A` to jump to
+today/week/all-time, use `<Tab>`/`<S-Tab>` to cycle through them, and `p` to
+open a picker.
+
 You can also sync up to your handle on another machine by taking the handle
 and key from `:Friends key` and passing it to `:Friends claim`
