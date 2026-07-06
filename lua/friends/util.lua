@@ -39,4 +39,21 @@ M.duration = function(seconds)
   return string.format("%dm", minutes)
 end
 
+M.time_ago = function(unix_seconds)
+  if not unix_seconds then
+    return "never"
+  end
+  local ago = math.max(0, os.time() - math.floor(unix_seconds))
+  if ago < 60 then
+    return "just now"
+  end
+  if ago < 3600 then
+    return string.format("%dm ago", math.floor(ago / 60))
+  end
+  if ago < 86400 then
+    return string.format("%dh ago", math.floor(ago / 3600))
+  end
+  return string.format("%dd ago", math.floor(ago / 86400))
+end
+
 return M
