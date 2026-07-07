@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { COUNTER_METRIC_NAMES, COUNTER_METRICS } from "./metrics";
 
 const HANDLE_RE = /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/;
 const TOKEN_RE = /^[a-zA-Z0-9_-]{8,64}$/;
@@ -30,9 +31,27 @@ export const RegisterBody = z.object({
   display_name: DisplayName.optional(),
 });
 
+const CounterName = z.enum(COUNTER_METRIC_NAMES as [string, ...string[]]);
+
 export const HeartbeatBody = z.object({
   token: Token,
   seconds: z.number().int().min(1).max(MAX_HEARTBEAT_SECONDS),
+  counters: z
+    .record(CounterName, z.number().int().min(0))
+    .optional()
+    .superRefine((counters, ctx) => {
+      if (!counters) return;
+      for (const [key, value] of Object.entries(counters)) {
+        const max = COUNTER_METRICS[key as keyof typeof COUNTER_METRICS]?.max;
+        if (max !== undefined && value > max) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `${key} must be an integer in [0, ${max}]`,
+            path: [key],
+          });
+        }
+      }
+    }),
   handles: z.array(Handle).min(1).max(MAX_STATUS_HANDLES).optional(),
 });
 
@@ -44,8 +63,11 @@ export const StatusQuery = z.object({
 
 export const Period = z.enum(["all", "today", "week"]);
 
+export const Metric = z.enum(["active_time", ...COUNTER_METRIC_NAMES] as [string, ...string[]]);
+
 export const LeaderboardQuery = z.object({
   period: Period.default("all"),
+  metric: Metric.default("active_time"),
   limit: z.coerce.number().int().min(1).max(MAX_LEADERBOARD_LIMIT).default(20),
   handles: handleList(MAX_STATUS_HANDLES).optional(),
 });
@@ -55,3 +77,4 @@ export type HeartbeatBody = z.infer<typeof HeartbeatBody>;
 export type StatusQuery = z.infer<typeof StatusQuery>;
 export type LeaderboardQuery = z.infer<typeof LeaderboardQuery>;
 export type Period = z.infer<typeof Period>;
+export type Metric = z.infer<typeof Metric>;

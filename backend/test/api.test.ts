@@ -199,6 +199,43 @@ apiTests({
     expect: { status: 400 },
   },
 
+  "heartbeat: accumulates counters": {
+    setup: [
+      register(OTTER, {}, NOON),
+      {
+        method: "POST",
+        path: `/api/v1/users/${OTTER.handle}/heartbeat`,
+        body: { token: OTTER.token, seconds: 60, counters: { keys_pressed: 500 } },
+        now: NOON,
+      },
+    ],
+    request: {
+      method: "POST",
+      path: `/api/v1/users/${OTTER.handle}/heartbeat`,
+      body: { token: OTTER.token, seconds: 60, counters: { keys_pressed: 250 } },
+      now: NOON + 60,
+    },
+    expect: { status: 200, body: { counters: { keys_pressed: 750 } } },
+  },
+
+  "heartbeat: rejects an unknown counter": {
+    request: {
+      method: "POST",
+      path: `/api/v1/users/${LYNX.handle}/heartbeat`,
+      body: { token: LYNX.token, seconds: 60, counters: { made_up_metric: 1 } },
+    },
+    expect: { status: 400 },
+  },
+
+  "heartbeat: rejects a counter over its cap": {
+    request: {
+      method: "POST",
+      path: `/api/v1/users/${LYNX.handle}/heartbeat`,
+      body: { token: LYNX.token, seconds: 60, counters: { keys_pressed: 20001 } },
+    },
+    expect: { status: 400 },
+  },
+
   "delete: removes the user with the right token": {
     setup: [register(OTTER, {}, NOON), heartbeat(OTTER, 60, NOON)],
     request: {
@@ -311,10 +348,11 @@ apiTests({
       status: 200,
       body: {
         period: "all",
+        metric: "active_time",
         entries: [
-          { rank: 1, handle: HARE.handle, seconds: 240 },
-          { rank: 2, handle: FOX.handle, seconds: 120 },
-          { rank: 3, handle: SNAIL.handle, seconds: 60 },
+          { rank: 1, handle: HARE.handle, value: 240 },
+          { rank: 2, handle: FOX.handle, value: 120 },
+          { rank: 3, handle: SNAIL.handle, value: 60 },
         ],
       },
     },
@@ -353,8 +391,8 @@ apiTests({
       body: {
         period: "today",
         entries: [
-          { rank: 1, handle: HARE.handle, seconds: 120 },
-          { rank: 2, handle: SNAIL.handle, seconds: 60 },
+          { rank: 1, handle: HARE.handle, value: 120 },
+          { rank: 2, handle: SNAIL.handle, value: 60 },
         ],
       },
     },
@@ -372,7 +410,7 @@ apiTests({
       status: 200,
       body: {
         period: "week",
-        entries: [{ rank: 1, handle: SNAIL.handle, seconds: 90 }],
+        entries: [{ rank: 1, handle: SNAIL.handle, value: 90 }],
       },
     },
   },
@@ -394,8 +432,8 @@ apiTests({
       status: 200,
       body: {
         entries: [
-          { rank: 1, handle: FOX.handle, seconds: 120 },
-          { rank: 2, handle: SNAIL.handle, seconds: 60 },
+          { rank: 1, handle: FOX.handle, value: 120 },
+          { rank: 2, handle: SNAIL.handle, value: 60 },
         ],
       },
     },
@@ -415,7 +453,7 @@ apiTests({
     },
     expect: {
       status: 200,
-      body: { entries: [{ rank: 1, handle: SNAIL.handle, seconds: 60 }] },
+      body: { entries: [{ rank: 1, handle: SNAIL.handle, value: 60 }] },
     },
   },
 
@@ -440,6 +478,42 @@ apiTests({
 
   "leaderboard: rejects non-integer limit": {
     request: { method: "GET", path: "/api/v1/leaderboard?limit=abc" },
+    expect: { status: 400 },
+  },
+
+  "leaderboard: ranks by keys_pressed when requested": {
+    setup: [
+      register(SNAIL, {}, NOON),
+      register(HARE, {}, NOON),
+      {
+        method: "POST",
+        path: `/api/v1/users/${SNAIL.handle}/heartbeat`,
+        body: { token: SNAIL.token, seconds: 60, counters: { keys_pressed: 1000 } },
+        now: NOON,
+      },
+      {
+        method: "POST",
+        path: `/api/v1/users/${HARE.handle}/heartbeat`,
+        body: { token: HARE.token, seconds: 240, counters: { keys_pressed: 200 } },
+        now: NOON,
+      },
+    ],
+    request: { method: "GET", path: "/api/v1/leaderboard?metric=keys_pressed" },
+    expect: {
+      status: 200,
+      body: {
+        period: "all",
+        metric: "keys_pressed",
+        entries: [
+          { rank: 1, handle: SNAIL.handle, value: 1000 },
+          { rank: 2, handle: HARE.handle, value: 200 },
+        ],
+      },
+    },
+  },
+
+  "leaderboard: rejects unknown metric": {
+    request: { method: "GET", path: "/api/v1/leaderboard?metric=made_up_metric" },
     expect: { status: 400 },
   },
 });

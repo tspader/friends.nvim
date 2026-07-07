@@ -39,6 +39,21 @@ M.duration = function(seconds)
   return string.format("%dm", minutes)
 end
 
+M.count = function(n)
+  n = math.max(0, math.floor(n or 0))
+  if n < 1000 then
+    return tostring(n)
+  end
+  local scaled, suffix = (n < 1e6) and (n / 1000) or (n / 1e6), (n < 1e6) and "k" or "M"
+  local fmt = scaled >= 100 and "%.0f%s" or "%.1f%s"
+  return (string.format(fmt, scaled, suffix):gsub("%.0([km])", "%1"))
+end
+
+M.formatters = {
+  active_time = M.duration,
+  keys_pressed = M.count,
+}
+
 M.time_ago = function(unix_seconds)
   if not unix_seconds then
     return "never"

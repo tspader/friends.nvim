@@ -83,6 +83,32 @@ test("restart after a flush does not double-count", async () => {
   }
 });
 
+test("flush persists counters to D1 and journal replays them after a restart", async () => {
+  const d1 = createLocalDb();
+  const journal = createLocalJournal();
+  try {
+    at(NOON);
+    const hub = createHub(d1, journal, () => {});
+    await hub.register(U);
+    await hub.heartbeat({ handle: U.handle, token: U.token, seconds: 60, counters: { keys_pressed: 500 } });
+    at(NOON + 60);
+    await hub.heartbeat({ handle: U.handle, token: U.token, seconds: 60, counters: { keys_pressed: 250 } });
+
+    const restarted = createHub(d1, journal, () => {});
+    const { users } = await restarted.status([U.handle]);
+    expect(users[0]?.counters).toEqual({ keys_pressed: 750 });
+
+    await restarted.flush();
+    const row = await d1
+      .prepare("SELECT counters FROM users WHERE handle = ?1")
+      .bind(U.handle)
+      .first<{ counters: string }>();
+    expect(JSON.parse(row?.counters ?? "{}")).toEqual({ keys_pressed: 750 });
+  } finally {
+    setSystemTime();
+  }
+});
+
 test("flush failure keeps pending time for the next attempt", async () => {
   const d1 = createLocalDb();
   const journal = createLocalJournal();

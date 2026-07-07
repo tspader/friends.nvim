@@ -5,6 +5,7 @@ import { cache } from "hono/cache";
 import type { Context, MiddlewareHandler } from "hono";
 import type { User } from "./db";
 import { isError, type HubCore } from "./hub";
+import { COUNTER_METRICS } from "./metrics";
 import {
   DeleteBody,
   HandleParam,
@@ -51,6 +52,7 @@ const MESSAGES: Record<string, string> = {
   display_name: "invalid display_name",
   seconds: `seconds must be an integer in [1, ${MAX_HEARTBEAT_SECONDS}]`,
   period: "period must be all, today, or week",
+  metric: "invalid metric",
   handles: `handles must list 1-${MAX_STATUS_HANDLES} handles`,
   limit: `limit must be an integer in [1, ${MAX_LEADERBOARD_LIMIT}]`,
 };
@@ -63,7 +65,10 @@ const onInvalid = (
 ) => {
   if (!result.success) {
     const field = result.error.issues[0]?.path.at(-1)?.toString() ?? "";
-    return c.json({ error: MESSAGES[field] ?? "invalid request" }, 400);
+    const counterMax = COUNTER_METRICS[field as keyof typeof COUNTER_METRICS]?.max;
+    const message =
+      counterMax !== undefined ? `${field} must be an integer in [0, ${counterMax}]` : MESSAGES[field];
+    return c.json({ error: message ?? "invalid request" }, 400);
   }
 };
 
@@ -111,8 +116,8 @@ app.post(
   zValidator("json", HeartbeatBody, onInvalid),
   async (c) => {
     const { handle } = c.req.valid("param");
-    const { token, seconds, handles } = c.req.valid("json");
-    const result = await hub(c).heartbeat({ handle, token, seconds, handles });
+    const { token, seconds, counters, handles } = c.req.valid("json");
+    const result = await hub(c).heartbeat({ handle, token, seconds, counters, handles });
     if (isError(result)) {
       return c.json({ error: result.error }, result.status);
     }
@@ -149,13 +154,14 @@ const leaderboardCache: MiddlewareHandler = globalThis.caches
   : (_c, next) => next();
 
 app.get("/v1/leaderboard", leaderboardCache, zValidator("query", LeaderboardQuery, onInvalid), async (c) => {
-  const { period, limit, handles } = c.req.valid("query");
-  const { entries, at } = await hub(c).leaderboard({ period, limit, handles });
+  const { period, metric, limit, handles } = c.req.valid("query");
+  const { entries, at } = await hub(c).leaderboard({ period, metric, limit, handles });
   return c.json({
     period,
-    entries: entries.map(({ seconds, ...user }, i) => ({
+    metric,
+    entries: entries.map(({ value, ...user }, i) => ({
       rank: i + 1,
-      seconds,
+      value,
       ...userJson(user, at),
     })),
   });
