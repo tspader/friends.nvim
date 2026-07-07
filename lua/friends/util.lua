@@ -47,13 +47,16 @@ M.time_ago = function(unix_seconds)
   if ago < 60 then
     return "just now"
   end
-  if ago < 3600 then
-    return string.format("%dm ago", math.floor(ago / 60))
+  if ago >= 86400 then
+    local days = math.floor(ago / 86400)
+    local hours = math.floor((ago % 86400) / 3600)
+    if hours == 0 then
+      return string.format("%dd ago", days)
+    end
+    return string.format("%dd %dh ago", days, hours)
   end
-  if ago < 86400 then
-    return string.format("%dh ago", math.floor(ago / 3600))
-  end
-  return string.format("%dd ago", math.floor(ago / 86400))
+  local duration = M.duration(ago)
+  return string.format("%s ago", duration)
 end
 
 return M
