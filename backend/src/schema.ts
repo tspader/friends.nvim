@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { COUNTER_METRIC_NAMES, COUNTER_METRICS } from "./metrics";
+import { COUNTER_METRIC_NAMES } from "./metrics";
 
 const HANDLE_RE = /^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$/;
 const TOKEN_RE = /^[a-zA-Z0-9_-]{8,64}$/;
@@ -36,22 +36,7 @@ const CounterName = z.enum(COUNTER_METRIC_NAMES as [string, ...string[]]);
 export const HeartbeatBody = z.object({
   token: Token,
   seconds: z.number().int().min(1).max(MAX_HEARTBEAT_SECONDS),
-  counters: z
-    .record(CounterName, z.number().int().min(0))
-    .optional()
-    .superRefine((counters, ctx) => {
-      if (!counters) return;
-      for (const [key, value] of Object.entries(counters)) {
-        const max = COUNTER_METRICS[key as keyof typeof COUNTER_METRICS]?.max;
-        if (max !== undefined && value > max) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: `${key} must be an integer in [0, ${max}]`,
-            path: [key],
-          });
-        }
-      }
-    }),
+  counters: z.record(CounterName, z.number().int().min(0)).optional(),
   handles: z.array(Handle).min(1).max(MAX_STATUS_HANDLES).optional(),
 });
 

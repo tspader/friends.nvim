@@ -5,7 +5,6 @@ import { cache } from "hono/cache";
 import type { Context, MiddlewareHandler } from "hono";
 import type { User } from "./db";
 import { isError, type HubCore } from "./hub";
-import { COUNTER_METRICS } from "./metrics";
 import {
   DeleteBody,
   HandleParam,
@@ -65,10 +64,7 @@ const onInvalid = (
 ) => {
   if (!result.success) {
     const field = result.error.issues[0]?.path.at(-1)?.toString() ?? "";
-    const counterMax = COUNTER_METRICS[field as keyof typeof COUNTER_METRICS]?.max;
-    const message =
-      counterMax !== undefined ? `${field} must be an integer in [0, ${counterMax}]` : MESSAGES[field];
-    return c.json({ error: message ?? "invalid request" }, 400);
+    return c.json({ error: MESSAGES[field] ?? "invalid request" }, 400);
   }
 };
 

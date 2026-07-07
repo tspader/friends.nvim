@@ -1,4 +1,5 @@
 import { createDb, parseCounters, utcDay, type Db, type User } from "./db";
+import { COUNTER_METRICS } from "./metrics";
 import type { Metric, Period } from "./schema";
 
 export const FLUSH_INTERVAL_SECONDS = 600;
@@ -196,8 +197,10 @@ export class HubCore {
     const bucket = user.days.get(day) ?? { seconds: 0, counters: {} };
     bucket.seconds += credited;
     for (const [key, value] of Object.entries(input.counters ?? {})) {
-      user.counters[key] = (user.counters[key] ?? 0) + value;
-      bucket.counters[key] = (bucket.counters[key] ?? 0) + value;
+      const max = COUNTER_METRICS[key as keyof typeof COUNTER_METRICS]?.max;
+      const credit = max !== undefined ? Math.min(value, max) : value;
+      user.counters[key] = (user.counters[key] ?? 0) + credit;
+      bucket.counters[key] = (bucket.counters[key] ?? 0) + credit;
     }
     user.days.set(day, bucket);
     user.last_seen_at = at;

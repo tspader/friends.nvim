@@ -227,13 +227,18 @@ apiTests({
     expect: { status: 400 },
   },
 
-  "heartbeat: rejects a counter over its cap": {
+  "heartbeat: clamps a counter over its cap instead of rejecting the request": {
+    setup: [register(LYNX, {}, NOON)],
     request: {
       method: "POST",
       path: `/api/v1/users/${LYNX.handle}/heartbeat`,
-      body: { token: LYNX.token, seconds: 60, counters: { keys_pressed: 20001 } },
+      body: { token: LYNX.token, seconds: 60, counters: { keys_pressed: 25000 } },
+      now: NOON,
     },
-    expect: { status: 400 },
+    expect: {
+      status: 200,
+      body: { total_seconds: 60, counters: { keys_pressed: 20000 } },
+    },
   },
 
   "delete: removes the user with the right token": {
