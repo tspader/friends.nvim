@@ -36,7 +36,7 @@ const CounterName = z.enum(COUNTER_METRIC_NAMES as [string, ...string[]]);
 export const HeartbeatBody = z.object({
   token: Token,
   seconds: z.number().int().min(1).max(MAX_HEARTBEAT_SECONDS),
-  counters: z.record(CounterName, z.number().int().min(0)).optional(),
+  counters: z.partialRecord(CounterName, z.number().int().min(0)).optional(),
   handles: z.array(Handle).min(1).max(MAX_STATUS_HANDLES).optional(),
 });
 

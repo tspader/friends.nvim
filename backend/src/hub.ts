@@ -1,4 +1,5 @@
 import { createDb, parseCounters, utcDay, type Db, type User } from "./db";
+import { migrateJournal } from "./journal-migrations";
 import { COUNTER_METRICS } from "./metrics";
 import type { Metric, Period } from "./schema";
 
@@ -68,18 +69,15 @@ export class HubCore {
   private now = () => Math.floor(Date.now() / 1000);
 
   private ensureHydrated(): Promise<void> {
-    this.hydration ??= this.hydrate();
+    this.hydration ??= this.hydrate().catch((err) => {
+      this.hydration = null;
+      throw err;
+    });
     return this.hydration;
   }
 
   private async hydrate(): Promise<void> {
-    this.journal.exec(
-      "CREATE TABLE IF NOT EXISTS pending (" +
-        "handle TEXT NOT NULL, day TEXT NOT NULL, day_seconds INTEGER NOT NULL, " +
-        "total_seconds INTEGER NOT NULL, last_seen_at INTEGER NOT NULL, " +
-        "counters TEXT NOT NULL DEFAULT '{}', day_counters TEXT NOT NULL DEFAULT '{}', " +
-        "PRIMARY KEY (handle, day))",
-    );
+    migrateJournal(this.journal);
     const at = this.now();
     for (const row of await this.db.allUsers()) {
       this.users.set(row.handle, { ...row, days: new Map() });
@@ -172,7 +170,7 @@ export class HubCore {
     handle: string;
     token: string;
     seconds: number;
-    counters?: Record<string, number>;
+    counters?: Partial<Record<string, number>>;
     handles?: string[];
   }): Promise<HubError | { user: User; users?: User[]; at: number }> {
     await this.ensureHydrated();
@@ -197,6 +195,7 @@ export class HubCore {
     const bucket = user.days.get(day) ?? { seconds: 0, counters: {} };
     bucket.seconds += credited;
     for (const [key, value] of Object.entries(input.counters ?? {})) {
+      if (value === undefined) continue;
       const max = COUNTER_METRICS[key as keyof typeof COUNTER_METRICS]?.max;
       const credit = max !== undefined ? Math.min(value, max) : value;
       user.counters[key] = (user.counters[key] ?? 0) + credit;
