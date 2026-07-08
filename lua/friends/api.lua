@@ -67,8 +67,11 @@ M.register = function(handle, token, display_name, cb)
   request("PUT", "/v1/users/" .. handle, body, cb or function() end)
 end
 
-M.heartbeat = function(handle, token, seconds, handles, cb)
+M.heartbeat = function(handle, token, seconds, counters, handles, cb)
   local body = { token = token, seconds = seconds }
+  if counters and next(counters) then
+    body.counters = counters
+  end
   handles = capped(handles)
   if handles and #handles > 0 then
     body.handles = handles
@@ -85,7 +88,7 @@ M.status = function(handles, cb)
 end
 
 M.leaderboard = function(opts, cb)
-  local query = "?period=" .. opts.period .. "&limit=" .. opts.limit
+  local query = "?period=" .. opts.period .. "&metric=" .. opts.metric .. "&limit=" .. opts.limit
   if opts.handles then
     query = query .. "&handles=" .. table.concat(opts.handles, ",")
   end

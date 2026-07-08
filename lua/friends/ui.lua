@@ -118,7 +118,7 @@ M.leaderboard = function(opts)
   local fetch = function()
     generation = generation + 1
     local gen = generation
-    local request = { period = board.get("period"), limit = cfg.limit }
+    local request = { period = board.get("period"), metric = board.get("metric"), limit = cfg.limit }
     if cfg.friends_only then
       local handles = require("friends.roster").all()
       table.insert(handles, me)
@@ -135,6 +135,7 @@ M.leaderboard = function(opts)
         update_float(buf, win, { " leaderboard failed" })
         return
       end
+      local formatter = util.formatters[board.get("metric")] or util.count
       local lines = {}
       for i, entry in ipairs(data.entries) do
         entries[i] = entry
@@ -147,7 +148,7 @@ M.leaderboard = function(opts)
             entry.rank,
             entry.active and config.options.statusline.active or " ",
             name,
-            util.duration(entry.seconds),
+            formatter(entry.value),
             you
           )
         )
@@ -168,7 +169,7 @@ M.leaderboard = function(opts)
     end
     if vim.api.nvim_win_is_valid(win) then
       vim.api.nvim_win_set_config(win, {
-        title = " friends.nvim — " .. board.get("period") .. " ",
+        title = " friends.nvim — " .. board.get("metric") .. " — " .. board.get("period") .. " ",
         title_pos = "center",
       })
     end
@@ -176,53 +177,65 @@ M.leaderboard = function(opts)
     fetch()
   end
 
-  buf, win = open_float("friends.nvim — " .. board.get("period"), { " fetching leaderboard…" }, {
-    footer = "a follow · <Tab> period · q close",
-    keys = {
-      a = {
-        function()
-          local entry = entries[vim.api.nvim_win_get_cursor(0)[1]]
-          if not entry then
-            return
-          end
-          if entry.handle == me then
-            util.notify("that's you")
-            return
-          end
-          require("friends.roster").add(entry.handle)
-        end,
-        desc = "follow user",
-      },
-      ["<Tab>"] = {
-        function()
-          switch(function()
-            board.cycle("period", 1)
-          end)
-        end,
-        desc = "next period",
-      },
-      ["<S-Tab>"] = {
-        function()
-          switch(function()
-            board.cycle("period", -1)
-          end)
-        end,
-        desc = "previous period",
-      },
-      p = {
-        function()
-          vim.ui.select(board.axes.period, { prompt = "leaderboard period" }, function(choice)
-            if choice then
-              switch(function()
-                board.set("period", choice)
-              end)
+  buf, win = open_float(
+    "friends.nvim — " .. board.get("metric") .. " — " .. board.get("period"),
+    { " fetching leaderboard…" },
+    {
+      footer = "a follow · <Tab> period · m metric · q close",
+      keys = {
+        a = {
+          function()
+            local entry = entries[vim.api.nvim_win_get_cursor(0)[1]]
+            if not entry then
+              return
             end
-          end)
-        end,
-        desc = "pick period",
+            if entry.handle == me then
+              util.notify("that's you")
+              return
+            end
+            require("friends.roster").add(entry.handle)
+          end,
+          desc = "follow user",
+        },
+        ["<Tab>"] = {
+          function()
+            switch(function()
+              board.cycle("period", 1)
+            end)
+          end,
+          desc = "next period",
+        },
+        ["<S-Tab>"] = {
+          function()
+            switch(function()
+              board.cycle("period", -1)
+            end)
+          end,
+          desc = "previous period",
+        },
+        p = {
+          function()
+            vim.ui.select(board.axes.period, { prompt = "leaderboard period" }, function(choice)
+              if choice then
+                switch(function()
+                  board.set("period", choice)
+                end)
+              end
+            end)
+          end,
+          desc = "pick period",
+        },
+        m = {
+          function()
+            switch(function()
+              board.cycle("metric", 1)
+            end)
+          end,
+          desc = "toggle metric",
+        },
       },
-    },
-  })
+    }
+  )
 
   fetch()
 end

@@ -1,0 +1,2 @@
+ALTER TABLE pending ADD COLUMN counters TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE pending ADD COLUMN day_counters TEXT NOT NULL DEFAULT '{}';

@@ -7,7 +7,7 @@ local M = {}
 -- supports them; new metrics get appended to metric the same way.
 M.axes = {
   period = { "today", "week", "all" },
-  metric = { "active_time" },
+  metric = { "active_time", "keys_pressed" },
 }
 
 local current = {}

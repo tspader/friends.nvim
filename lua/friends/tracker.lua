@@ -7,6 +7,7 @@ local ns = vim.api.nvim_create_namespace("friends_tracker")
 local timer = nil
 local last_input = nil
 local last_flush = nil
+local counters = { keys_pressed = 0 }
 
 local warned_taken = false
 
@@ -17,12 +18,15 @@ local flush = function()
   if not last_input or (now - last_input) > IDLE_TIMEOUT * 1000 or elapsed < 1 then
     return
   end
+  local snapshot = counters
+  counters = { keys_pressed = 0 }
   local identity = require("friends.identity").get()
   local handles = require("friends.roster").all()
   require("friends.api").heartbeat(
     identity.handle,
     identity.token,
     math.min(300, elapsed),
+    snapshot,
     handles,
     function(data, status)
       if data and data.users then
@@ -52,7 +56,11 @@ M.start = function()
   local mark = function()
     last_input = vim.uv.now()
   end
-  vim.on_key(mark, ns)
+  local on_key = function()
+    counters.keys_pressed = counters.keys_pressed + 1
+    mark()
+  end
+  vim.on_key(on_key, ns)
   last_flush = vim.uv.now()
   timer = vim.uv.new_timer()
   local interval = HEARTBEAT_INTERVAL * 1000
@@ -82,6 +90,7 @@ M.stop = function()
   timer:close()
   timer = nil
   last_input = nil
+  counters = { keys_pressed = 0 }
   vim.api.nvim_clear_autocmds({ group = "FriendsTracker" })
 end
 

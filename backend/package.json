@@ -4,11 +4,11 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "bun build src/worker.ts --outdir dist --target browser --format esm --minify --external cloudflare:workers",
+    "build": "bun build src/worker.ts --outdir dist --target browser --format esm --minify --external cloudflare:workers --loader .sql:text",
     "test": "bun test",
     "serve": "bun run serve.ts",
     "dev": "wrangler dev",
-    "deploy": "bun run build && terraform -chdir=../infra/cloudflare apply && bunx wrangler d1 migrations apply friends --remote"
+    "deploy": "bun run build && bunx wrangler d1 migrations apply friends --remote && terraform -chdir=../infra/cloudflare apply"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.8.0",

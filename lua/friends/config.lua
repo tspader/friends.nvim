@@ -24,6 +24,7 @@ M.defaults = function()
     },
     leaderboard = {
       period = "week", -- all | week | today
+      metric = "active_time", -- active_time | keys_pressed
       limit = 20,
       -- Only rank you and your friends instead of the whole world.
       friends_only = false,

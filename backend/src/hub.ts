@@ -1,5 +1,7 @@
-import { createDb, utcDay, type Db, type User } from "./db";
-import type { Period } from "./schema";
+import { createDb, parseCounters, utcDay, type Db, type User } from "./db";
+import { migrateJournal } from "./journal-migrations";
+import { COUNTER_METRICS } from "./metrics";
+import type { Metric, Period } from "./schema";
 
 export const FLUSH_INTERVAL_SECONDS = 600;
 export const MIN_HEARTBEAT_GAP_SECONDS = 15;
@@ -10,11 +12,23 @@ const MEMORY_DAYS = 7;
 const D1_RETENTION_DAYS = 10;
 const FLUSH_CHUNK = 100;
 
-type UserState = User & { token: string; days: Map<string, number> };
+type DayBucket = { seconds: number; counters: Record<string, number> };
+type UserState = User & { token: string; days: Map<string, DayBucket> };
 
 export type HubError = { error: string; status: 403 | 404 | 409 | 429 | 503 };
 
-export type LeaderboardEntry = User & { seconds: number };
+export type LeaderboardEntry = User & { value: number };
+
+const mergeCounters = (
+  a: Record<string, number>,
+  b: Record<string, number>,
+): Record<string, number> => {
+  const out = { ...a };
+  for (const [key, value] of Object.entries(b)) {
+    out[key] = Math.max(out[key] ?? 0, value);
+  }
+  return out;
+};
 
 export type Journal = {
   exec(
@@ -31,6 +45,7 @@ const publicUser = (user: UserState): User => ({
   display_name: user.display_name,
   total_seconds: user.total_seconds,
   last_seen_at: user.last_seen_at,
+  counters: user.counters,
 });
 
 const dayKey = (handle: string, day: string) => `${handle}\n${day}`;
@@ -54,27 +69,27 @@ export class HubCore {
   private now = () => Math.floor(Date.now() / 1000);
 
   private ensureHydrated(): Promise<void> {
-    this.hydration ??= this.hydrate();
+    this.hydration ??= this.hydrate().catch((err) => {
+      this.hydration = null;
+      throw err;
+    });
     return this.hydration;
   }
 
   private async hydrate(): Promise<void> {
-    this.journal.exec(
-      "CREATE TABLE IF NOT EXISTS pending (" +
-        "handle TEXT NOT NULL, day TEXT NOT NULL, day_seconds INTEGER NOT NULL, " +
-        "total_seconds INTEGER NOT NULL, last_seen_at INTEGER NOT NULL, " +
-        "PRIMARY KEY (handle, day))",
-    );
+    migrateJournal(this.journal);
     const at = this.now();
     for (const row of await this.db.allUsers()) {
       this.users.set(row.handle, { ...row, days: new Map() });
     }
     const since = utcDay(at - (MEMORY_DAYS - 1) * 86400);
     for (const row of await this.db.usageDaysSince(since)) {
-      this.users.get(row.handle)?.days.set(row.day, row.seconds);
+      this.users.get(row.handle)?.days.set(row.day, { seconds: row.seconds, counters: row.counters });
     }
     for (const row of this.journal
-      .exec("SELECT handle, day, day_seconds, total_seconds, last_seen_at FROM pending")
+      .exec(
+        "SELECT handle, day, day_seconds, total_seconds, last_seen_at, counters, day_counters FROM pending",
+      )
       .toArray()) {
       const handle = row.handle as string;
       const day = row.day as string;
@@ -82,7 +97,12 @@ export class HubCore {
       if (!user) continue;
       user.total_seconds = Math.max(user.total_seconds, row.total_seconds as number);
       user.last_seen_at = Math.max(user.last_seen_at ?? 0, row.last_seen_at as number);
-      user.days.set(day, Math.max(user.days.get(day) ?? 0, row.day_seconds as number));
+      user.counters = mergeCounters(user.counters, parseCounters(row.counters));
+      const bucket = user.days.get(day) ?? { seconds: 0, counters: {} };
+      user.days.set(day, {
+        seconds: Math.max(bucket.seconds, row.day_seconds as number),
+        counters: mergeCounters(bucket.counters, parseCounters(row.day_counters)),
+      });
       this.dirty.add(handle);
       this.dirtyDays.add(dayKey(handle, day));
     }
@@ -131,6 +151,7 @@ export class HubCore {
       display_name: input.display_name ?? null,
       total_seconds: 0,
       last_seen_at: null,
+      counters: {},
       days: new Map(),
     };
     await this.db.insertUser({
@@ -149,6 +170,7 @@ export class HubCore {
     handle: string;
     token: string;
     seconds: number;
+    counters?: Partial<Record<string, number>>;
     handles?: string[];
   }): Promise<HubError | { user: User; users?: User[]; at: number }> {
     await this.ensureHydrated();
@@ -170,18 +192,30 @@ export class HubCore {
     }
     const day = utcDay(at);
     user.total_seconds += credited;
-    user.days.set(day, (user.days.get(day) ?? 0) + credited);
+    const bucket = user.days.get(day) ?? { seconds: 0, counters: {} };
+    bucket.seconds += credited;
+    for (const [key, value] of Object.entries(input.counters ?? {})) {
+      if (value === undefined) continue;
+      const max = COUNTER_METRICS[key as keyof typeof COUNTER_METRICS]?.max;
+      const credit = max !== undefined ? Math.min(value, max) : value;
+      user.counters[key] = (user.counters[key] ?? 0) + credit;
+      bucket.counters[key] = (bucket.counters[key] ?? 0) + credit;
+    }
+    user.days.set(day, bucket);
     user.last_seen_at = at;
     this.journal.exec(
-      "INSERT INTO pending (handle, day, day_seconds, total_seconds, last_seen_at) " +
-        "VALUES (?1, ?2, ?3, ?4, ?5) " +
+      "INSERT INTO pending (handle, day, day_seconds, total_seconds, last_seen_at, counters, day_counters) " +
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) " +
         "ON CONFLICT(handle, day) DO UPDATE SET day_seconds = excluded.day_seconds, " +
-        "total_seconds = excluded.total_seconds, last_seen_at = excluded.last_seen_at",
+        "total_seconds = excluded.total_seconds, last_seen_at = excluded.last_seen_at, " +
+        "counters = excluded.counters, day_counters = excluded.day_counters",
       input.handle,
       day,
-      user.days.get(day)!,
+      bucket.seconds,
       user.total_seconds,
       at,
+      JSON.stringify(user.counters),
+      JSON.stringify(bucket.counters),
     );
     this.dirty.add(input.handle);
     this.dirtyDays.add(dayKey(input.handle, day));
@@ -233,6 +267,7 @@ export class HubCore {
 
   async leaderboard(query: {
     period: Period;
+    metric: Metric;
     limit: number;
     handles?: string[];
   }): Promise<{ entries: LeaderboardEntry[]; at: number }> {
@@ -243,22 +278,28 @@ export class HubCore {
       : [...this.users.values()];
 
     const since = query.period === "today" ? utcDay(at) : utcDay(at - 6 * 86400);
-    const seconds = (user: UserState): number => {
-      if (query.period === "all") {
-        return user.total_seconds;
+    const value = (user: UserState): number => {
+      if (query.metric === "active_time") {
+        if (query.period === "all") return user.total_seconds;
+        let sum = 0;
+        for (const [day, bucket] of user.days) {
+          if (day >= since) sum += bucket.seconds;
+        }
+        return sum;
       }
+      if (query.period === "all") return user.counters[query.metric] ?? 0;
       let sum = 0;
-      for (const [day, daySeconds] of user.days) {
-        if (day >= since) sum += daySeconds;
+      for (const [day, bucket] of user.days) {
+        if (day >= since) sum += bucket.counters[query.metric] ?? 0;
       }
       return sum;
     };
 
-    let entries = pool.map((user) => ({ ...publicUser(user), seconds: seconds(user) }));
+    let entries = pool.map((user) => ({ ...publicUser(user), value: value(user) }));
     if (query.period !== "all") {
-      entries = entries.filter((entry) => entry.seconds > 0);
+      entries = entries.filter((entry) => entry.value > 0);
     }
-    entries.sort((a, b) => b.seconds - a.seconds || (a.handle < b.handle ? -1 : 1));
+    entries.sort((a, b) => b.value - a.value || (a.handle < b.handle ? -1 : 1));
     return { entries: entries.slice(0, query.limit), at };
   }
 
@@ -274,8 +315,18 @@ export class HubCore {
     this.dirty = new Set();
     this.dirtyDays = new Set();
 
-    const users: { handle: string; total_seconds: number; last_seen_at: number | null }[] = [];
-    const usage: { handle: string; day: string; seconds: number }[] = [];
+    const users: {
+      handle: string;
+      total_seconds: number;
+      last_seen_at: number | null;
+      counters: Record<string, number>;
+    }[] = [];
+    const usage: {
+      handle: string;
+      day: string;
+      seconds: number;
+      counters: Record<string, number>;
+    }[] = [];
     for (const handle of handles) {
       const user = this.users.get(handle);
       if (!user) continue;
@@ -283,13 +334,14 @@ export class HubCore {
         handle,
         total_seconds: user.total_seconds,
         last_seen_at: user.last_seen_at,
+        counters: user.counters,
       });
     }
     for (const key of days) {
       const [handle, day] = key.split("\n") as [string, string];
-      const daySeconds = this.users.get(handle)?.days.get(day);
-      if (daySeconds !== undefined) {
-        usage.push({ handle, day, seconds: daySeconds });
+      const bucket = this.users.get(handle)?.days.get(day);
+      if (bucket !== undefined) {
+        usage.push({ handle, day, seconds: bucket.seconds, counters: bucket.counters });
       }
     }
 
