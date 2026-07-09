@@ -1,6 +1,6 @@
 Ah, `neovim`. A safe haven, away from the bloat of modern software, away from
 the stench of startups funded through complex private equity schemes. A good
-place where everything works the way it ought to. The though of it brings a
+place where everything works the way it ought to. The thought of it brings a
 peaceful, quiet smile to your face, like a gentle sunbeam.
 
 Wait, no. No! All of this quietness and solitude has left me alone with my own
@@ -68,14 +68,16 @@ Or, if you want the global leaderboard, which I am dominating btw:
 
 Go ahead and let that global leaderboard rip. Just give that command a little
 run and check out the name at the top. Man, look at that number. Just give that
-number a tiny little readarooni. That's a big fucking number. My life ie
+number a tiny little readarooni. That's a big fucking number. My life is
 meaningful and I am fulfilling my destiny. Just check that leaderboard real
 quick.
 
 Have you been crunching hard today, but your number is still smaller than your
 friends' because they spent the last week doing their day job while you took
 a (well deserved) vacation? `<Tab>` to switch the period to `today` and let your
-usual smugness return. You can also use `p` to open a period picker.
+usual smugness return. You can also use `p` to open a period picker, `m` to
+switch the metric between active time and keys pressed, and `f` to filter the
+board down to just you and your friends.
 
 You can also sync up to your handle on another machine by taking the handle
 and key from `:Friends key` and passing it to `:Friends claim`

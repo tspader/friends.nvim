@@ -56,9 +56,13 @@ M.start = function()
   local mark = function()
     last_input = vim.uv.now()
   end
+  -- Runs on every keypress; an error would disturb input and make nvim
+  -- drop the callback, so never let one escape.
   local on_key = function()
-    counters.keys_pressed = counters.keys_pressed + 1
-    mark()
+    pcall(function()
+      counters.keys_pressed = counters.keys_pressed + 1
+      mark()
+    end)
   end
   vim.on_key(on_key, ns)
   last_flush = vim.uv.now()

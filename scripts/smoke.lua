@@ -46,12 +46,17 @@ end)
 check("wrong token cannot take a handle", conflict == 409, tostring(conflict))
 
 local hb = await(function(cb)
-  api.heartbeat(FRIEND, TOKEN, 60, nil, cb)
+  api.heartbeat(FRIEND, TOKEN, 60, { keys_pressed = 123 }, nil, cb)
 end)
 check("heartbeat credits time", hb and hb.total_seconds == 60, vim.inspect(hb))
+check(
+  "heartbeat counters round-trip",
+  hb and hb.counters and hb.counters.keys_pressed == 123,
+  vim.inspect(hb and hb.counters)
+)
 
 local _, limited = await(function(cb)
-  api.heartbeat(FRIEND, TOKEN, 10, nil, cb)
+  api.heartbeat(FRIEND, TOKEN, 10, nil, nil, cb)
 end)
 check("rapid heartbeats are rate limited", limited == 429, tostring(limited))
 
@@ -112,7 +117,7 @@ local parts = require("friends.status").parts()
 check("statusline parts for lualine", #parts == 1 and parts[1].active == true, vim.inspect(parts))
 
 local board = await(function(cb)
-  api.leaderboard({ period = "week", limit = 10 }, cb)
+  api.leaderboard({ period = "week", metric = "active_time", limit = 10 }, cb)
 end)
 check("leaderboard has entries", board and board.entries and #board.entries >= 2, vim.inspect(board))
 
@@ -179,6 +184,27 @@ if target then
 
   vim.api.nvim_feedkeys(tab, "tx", false)
   check("tab cycle wraps around", float_title():find("today", 1, true) ~= nil, float_title())
+
+  vim.api.nvim_feedkeys("f", "tx", false)
+  check(
+    "f toggles friends-only and retitles",
+    float_title():find("— friends", 1, true) ~= nil,
+    float_title()
+  )
+  vim.wait(5000, function()
+    local first = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1] or ""
+    return not first:find("fetching", 1, true)
+  end)
+  local friends_only_shows_friend = false
+  for _, l in ipairs(vim.api.nvim_buf_get_lines(0, 0, -1, false)) do
+    if l:find("Smokey", 1, true) then
+      friends_only_shows_friend = true
+    end
+  end
+  check("friends-only board renders entries", friends_only_shows_friend)
+
+  vim.api.nvim_feedkeys("f", "tx", false)
+  check("f toggles back to global", float_title():find("— friends", 1, true) == nil, float_title())
   vim.cmd("close")
 end
 
@@ -217,6 +243,35 @@ check(
   tostring(notify_msg)
 )
 check("invalid board value opens no float", vim.bo.filetype ~= "friends")
+
+vim.cmd("Friends list")
+vim.wait(5000, function()
+  return vim.bo.filetype == "friends"
+end)
+local first_row = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1] or ""
+check(
+  "list shows own handle first",
+  first_row:find(me, 1, true) ~= nil and first_row:find("(you)", 1, true) ~= nil,
+  "'" .. first_row .. "'"
+)
+
+local detail_has = function(text)
+  for _, w in ipairs(vim.api.nvim_list_wins()) do
+    local b = vim.api.nvim_win_get_buf(w)
+    for _, l in ipairs(vim.api.nvim_buf_get_lines(b, 0, -1, false)) do
+      if l:find(text, 1, true) then
+        return true
+      end
+    end
+  end
+  return false
+end
+vim.wait(5000, function()
+  return detail_has("keys pressed")
+end)
+check("list detail shows tracked stats", detail_has("keys pressed"))
+check("list detail shows last active", detail_has("last active"))
+close_float()
 
 local identity = require("friends.identity")
 local claim_result
