@@ -12,6 +12,21 @@ M.axes = {
 
 local current = {}
 
+-- Session-persistent like the axes: sticks across float reopens.
+local friends_only = nil
+
+M.friends_only = function()
+  if friends_only == nil then
+    friends_only = config.options.leaderboard.friends_only == true
+  end
+  return friends_only
+end
+
+M.toggle_friends_only = function()
+  friends_only = not M.friends_only()
+  return friends_only
+end
+
 M.valid = function(axis, value)
   return vim.tbl_contains(M.axes[axis] or {}, value)
 end

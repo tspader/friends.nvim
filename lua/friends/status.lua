@@ -38,14 +38,8 @@ end
 
 M.refresh = function(cb)
   local handles = require("friends.roster").all()
-  if #handles == 0 then
-    cached_users = {}
-    rebuild()
-    if cb then
-      cb()
-    end
-    return
-  end
+  -- Position 1 so api.lua's MAX_HANDLES cap can never slice yourself off.
+  table.insert(handles, 1, require("friends.identity").get().handle)
   require("friends.api").status(handles, function(data)
     if data and data.users then
       cached_users = data.users

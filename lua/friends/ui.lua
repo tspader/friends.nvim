@@ -115,11 +115,19 @@ M.leaderboard = function(opts)
   local generation = 0
   local buf, win
 
+  local title = function()
+    local text = "friends.nvim - " .. board.get("metric") .. " - " .. board.get("period")
+    if board.friends_only() then
+      text = text .. " - friends"
+    end
+    return text
+  end
+
   local fetch = function()
     generation = generation + 1
     local gen = generation
     local request = { period = board.get("period"), metric = board.get("metric"), limit = cfg.limit }
-    if cfg.friends_only then
+    if board.friends_only() then
       local handles = require("friends.roster").all()
       table.insert(handles, me)
       request.handles = handles
@@ -169,7 +177,7 @@ M.leaderboard = function(opts)
     end
     if vim.api.nvim_win_is_valid(win) then
       vim.api.nvim_win_set_config(win, {
-        title = " friends.nvim — " .. board.get("metric") .. " — " .. board.get("period") .. " ",
+        title = " " .. title() .. " ",
         title_pos = "center",
       })
     end
@@ -178,7 +186,7 @@ M.leaderboard = function(opts)
   end
 
   buf, win = open_float(
-    "friends.nvim — " .. board.get("metric") .. " — " .. board.get("period"),
+    title(),
     { " fetching leaderboard…" },
     {
       footer = "a follow · <Tab> period · m metric · q close",
@@ -233,6 +241,12 @@ M.leaderboard = function(opts)
           end,
           desc = "toggle metric",
         },
+        f = {
+          function()
+            switch(board.toggle_friends_only)
+          end,
+          desc = "toggle friends only",
+        },
       },
     }
   )
@@ -247,12 +261,24 @@ local detail_fields = function(entry)
   if not entry.user then
     return { { "status", "unregistered" } }
   end
-  return {
+  local fields = {
     { "last active", util.time_ago(entry.user.last_seen_at) },
   }
+  -- One row per tracked metric, in board order so new metrics show up
+  -- here automatically.
+  for _, metric in ipairs(require("friends.board").axes.metric) do
+    local value
+    if metric == "active_time" then
+      value = util.duration(entry.user.total_seconds)
+    else
+      value = (util.formatters[metric] or util.count)((entry.user.counters or {})[metric] or 0)
+    end
+    table.insert(fields, { (metric:gsub("_", " ")), value })
+  end
+  return fields
 end
 
-local list_lines = function(roster)
+local list_lines = function(roster, me)
   local status = require("friends.status")
   local by_handle = {}
   for _, user in ipairs(status.users()) do
@@ -264,6 +290,9 @@ local list_lines = function(roster)
     local user = by_handle[handle]
     local icon = (user and user.active) and config.options.statusline.active or config.options.statusline.idle
     local name = (user and user.display_name) and (user.display_name .. " · " .. handle) or handle
+    if handle == me then
+      name = name .. " (you)"
+    end
     local total = user and util.duration(user.total_seconds) or (fetched and "unregistered" or "…")
     table.insert(lines, string.format(" %s %-40s %10s", icon, name, total))
     table.insert(entries, { handle = handle, user = user, pending = (not user and not fetched) or nil })
@@ -280,12 +309,15 @@ local render_detail = function(buf, entries, index)
 end
 
 M.list = function()
+  local me = require("friends.identity").get().handle
   local roster = require("friends.roster").all()
   if #roster == 0 then
     util.notify("no friends yet — :Friends add {handle}")
-    return
   end
-  local lines, entries = list_lines(roster)
+  if not vim.tbl_contains(roster, me) then
+    table.insert(roster, 1, me)
+  end
+  local lines, entries = list_lines(roster, me)
 
   local detail_rows = 1
   for _, entry in ipairs(entries) do
@@ -335,10 +367,15 @@ M.list = function()
     if not vim.api.nvim_buf_is_valid(buf) then
       return
     end
-    local new_lines, new_entries = list_lines(roster)
+    local new_lines, new_entries = list_lines(roster, me)
     for i, entry in ipairs(new_entries) do
       entries[i] = entry
     end
+    -- Entries opened as "fetching…" (one field) may now carry stats rows.
+    for _, entry in ipairs(entries) do
+      detail_rows = math.max(detail_rows, #detail_fields(entry))
+    end
+    reserve = detail_rows + 2
     update_float(buf, win, new_lines, reserve)
     if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_is_valid(detail_win) then
       local moved = vim.api.nvim_win_get_config(win)

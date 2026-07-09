@@ -12,6 +12,16 @@ CONTENTS                                                     *friends-contents*
 ==============================================================================
 1. INTRODUCTION                                                 *friends-intro*
 
+friends.nvim shows you when your friends are in Neovim: one dot per friend
+in your statusline, filled while they are active. It keeps a leaderboard
+of everyone's usage, ranked by active time or keystrokes.
+
+On first start the plugin registers you automatically: you get a public
+handle (share it so friends can follow you) and a private token that proves
+the handle is yours. Both are stored locally; use |:Friends key| and
+|:Friends claim| to reuse the same identity on another machine. While
+tracking is enabled, the plugin batches your activity into periodic
+heartbeats to the backend; disable `track` to lurk.
 
 ==============================================================================
 2. SETUP                                                        *friends-setup*
@@ -44,6 +54,7 @@ The defaults: >lua
     },
     leaderboard = {
       period = "week", -- all | week | today
+      metric = "active_time", -- active_time | keys_pressed
       limit = 20,
       -- Only rank you and your friends instead of the whole world.
       friends_only = false,
@@ -55,21 +66,28 @@ The defaults: >lua
 
                                                                      *:Friends*
 :Friends                Show the leaderboard. Press `a` on a row to follow
-                        that person; `q` closes. Switch the ranking period
-                        without closing: <Tab>/<S-Tab> cycle through
-                        today/week/all, `p` picks one via |vim.ui.select()|.
-                        The chosen period sticks for the rest of the session.
+                        that person; `q` closes. Switch what is ranked
+                        without closing: <Tab>/<S-Tab> cycle the period
+                        through today/week/all, `p` picks one via
+                        |vim.ui.select()|, `m` cycles the metric
+                        (active_time/keys_pressed), and `f` toggles between
+                        the global board and just you + your friends. The
+                        chosen period, metric, and friends filter stick for
+                        the rest of the session.
                                                               *:Friends-board*
 :Friends board [value ...]
                         Show the leaderboard with the given options, e.g.
                         `:Friends board today`. Each value selects the axis
                         it belongs to — period: `today`, `week`, `all`;
-                        ranking metric: `active_time` (more to be added).
+                        ranking metric: `active_time`, `keys_pressed`.
                         Values complete with |cmdline-completion|.
 :Friends add {handle}   Follow a friend by handle.
 :Friends remove {handle}
                         Unfollow a friend.
-:Friends list           Show your friends, who is active, and their hours.
+:Friends list           Show your friends (and yourself), who is active, and
+                        their hours. The window below the list shows the
+                        highlighted user's last-active time and their tracked
+                        stats (active time, keys pressed).
 :Friends name {name}    Set your display name.
 :Friends handle         Show your handle so you can share it.
                                                                 *:Friends-key*
