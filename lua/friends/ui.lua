@@ -189,7 +189,7 @@ M.leaderboard = function(opts)
     title(),
     { " fetching leaderboard…" },
     {
-      footer = "a follow · <Tab> period · m metric · f friends · q close",
+      footer = "a follow · <Tab> period · m metric · q close",
       keys = {
         a = {
           function()
