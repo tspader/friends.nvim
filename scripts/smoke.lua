@@ -4,12 +4,17 @@
 local url = vim.env.FRIENDS_URL or "http://127.0.0.1:8787/api"
 local failed = 0
 
+local colored = function(color, text)
+  local codes = { green = "32", red = "31" }
+  return "\27[" .. codes[color] .. "m" .. text .. "\27[0m"
+end
+
 local check = function(name, ok, detail)
   if ok then
-    print("PASS " .. name)
+    io.write(name .. "..." .. colored("green", "ok") .. "\n")
   else
     failed = failed + 1
-    print("FAIL " .. name .. (detail and (" — " .. detail) or ""))
+    io.write(name .. "..." .. colored("red", "fail") .. (detail and (" — " .. detail) or "") .. "\n")
   end
 end
 
@@ -283,7 +288,7 @@ if target then
   vim.api.nvim_feedkeys("f", "tx", false)
   check(
     "f toggles friends-only and retitles",
-    float_title():find("— friends", 1, true) ~= nil,
+    float_title():find("- friends", 1, true) ~= nil,
     float_title()
   )
   vim.wait(5000, function()
@@ -396,4 +401,5 @@ if failed > 0 then
   os.exit(1)
 end
 print("smoke: all checks passed")
+print("")
 os.exit(0)

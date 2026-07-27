@@ -67,7 +67,7 @@ apiTests({
       path: `/api/v1/users/${OTTER.handle}`,
       body: { token: "someone-elses-token" },
     },
-    expect: { status: 409, body: { error: "handle taken" } },
+    expect: { status: 409, body: { error: "handle taken", code: "handle_taken" } },
   },
 
   "register: rejects missing token": {
@@ -141,7 +141,7 @@ apiTests({
       path: `/api/v1/users/${OTTER.handle}/heartbeat`,
       body: { token: "someone-elses-token", seconds: 60 },
     },
-    expect: { status: 403, body: { error: "handle taken" } },
+    expect: { status: 403, body: { error: "wrong token" } },
   },
 
   "heartbeat: rate limits heartbeats closer than 15s": {
@@ -289,7 +289,7 @@ apiTests({
       path: `/api/v1/users/${OTTER.handle}`,
       body: { token: "someone-elses-token" },
     },
-    expect: { status: 403, body: { error: "handle taken" } },
+    expect: { status: 403, body: { error: "wrong token" } },
   },
 
   "delete: 404s an unknown handle": {
@@ -556,12 +556,12 @@ apiTests({
   "ping: 404s an unknown recipient": {
     setup: [register(OTTER, {}, NOON)],
     request: ping(OTTER, "nobody-here-00", undefined, NOON),
-    expect: { status: 404, body: { error: "not found" } },
+    expect: { status: 404, body: { error: "not found", code: "unknown_recipient" } },
   },
 
   "ping: rejects an unknown sender handle": {
     request: ping(OTTER, LYNX.handle, undefined, NOON),
-    expect: { status: 404, body: { error: "not found" } },
+    expect: { status: 404, body: { error: "not found", code: "unknown_handle" } },
   },
 
   "ping: rejects the wrong sender token": {
@@ -572,7 +572,7 @@ apiTests({
       body: { token: "someone-elses-token", to: LYNX.handle },
       now: NOON,
     },
-    expect: { status: 403, body: { error: "handle taken" } },
+    expect: { status: 403, body: { error: "wrong token", code: "wrong_token" } },
   },
 
   "ping: rejects missing to handle": {

@@ -18,7 +18,17 @@ const FLUSH_CHUNK = 100;
 type DayBucket = { seconds: number; counters: Record<string, number> };
 type UserState = User & { token: string; days: Map<string, DayBucket> };
 
-export type HubError = { error: string; status: 403 | 404 | 409 | 429 | 503 };
+export type HubErrorCode =
+  | "handle_taken"
+  | "registration_limit"
+  | "ip_registration_limit"
+  | "unknown_handle"
+  | "unknown_recipient"
+  | "wrong_token"
+  | "heartbeat_cooldown"
+  | "ping_cooldown";
+
+export type HubError = { code: HubErrorCode };
 
 export type LeaderboardEntry = User & { value: number };
 
@@ -43,7 +53,7 @@ export type Journal = {
 };
 
 const isError = (result: unknown): result is HubError =>
-  typeof result === "object" && result !== null && "error" in result;
+  typeof result === "object" && result !== null && "code" in result;
 
 const publicUser = (user: UserState): User => ({
   handle: user.handle,
@@ -128,7 +138,7 @@ export class HubCore {
     const existing = this.users.get(input.handle);
     if (existing) {
       if (existing.token !== input.token) {
-        return { error: "handle taken", status: 409 };
+        return { code: "handle_taken" };
       }
       if (input.display_name !== undefined && input.display_name !== existing.display_name) {
         await this.db.setDisplayName(input.handle, input.display_name);
@@ -144,11 +154,11 @@ export class HubCore {
       this.regByIp.clear();
     }
     if (this.regCount >= MAX_REGISTRATIONS_PER_DAY) {
-      return { error: "no new handles left today; try again tomorrow", status: 503 };
+      return { code: "registration_limit" };
     }
     const ipCount = this.regByIp.get(input.ip) ?? 0;
     if (ipCount >= MAX_REGISTRATIONS_PER_IP_PER_DAY) {
-      return { error: "too many new handles from your address today", status: 429 };
+      return { code: "ip_registration_limit" };
     }
 
     const user: UserState = {
@@ -182,17 +192,17 @@ export class HubCore {
     await this.ensureHydrated();
     const user = this.users.get(input.handle);
     if (!user) {
-      return { error: "not found", status: 404 };
+      return { code: "unknown_handle" };
     }
     if (user.token !== input.token) {
-      return { error: "handle taken", status: 403 };
+      return { code: "wrong_token" };
     }
     const at = this.now();
     let credited = input.seconds;
     if (user.last_seen_at !== null) {
       const gap = at - user.last_seen_at;
       if (gap < MIN_HEARTBEAT_GAP_SECONDS) {
-        return { error: "too many heartbeats; wait a moment", status: 429 };
+        return { code: "heartbeat_cooldown" };
       }
       credited = Math.min(input.seconds, gap);
     }
@@ -248,10 +258,10 @@ export class HubCore {
     await this.ensureHydrated();
     const user = this.users.get(input.handle);
     if (!user) {
-      return { error: "not found", status: 404 };
+      return { code: "unknown_handle" };
     }
     if (user.token !== input.token) {
-      return { error: "handle taken", status: 403 };
+      return { code: "wrong_token" };
     }
     await this.db.deleteUser(input.handle);
     this.users.delete(input.handle);
@@ -277,18 +287,18 @@ export class HubCore {
     await this.ensureHydrated();
     const sender = this.users.get(input.handle);
     if (!sender) {
-      return { error: "not found", status: 404 };
+      return { code: "unknown_handle" };
     }
     if (sender.token !== input.token) {
-      return { error: "handle taken", status: 403 };
+      return { code: "wrong_token" };
     }
     if (!this.users.has(input.to)) {
-      return { error: "not found", status: 404 };
+      return { code: "unknown_recipient" };
     }
     const at = this.now();
     const last = this.lastPingAt.get(input.handle);
     if (last !== undefined && at - last < MIN_PING_GAP_SECONDS) {
-      return { error: "too many pings; wait a moment", status: 429 };
+      return { code: "ping_cooldown" };
     }
     const pending = this.journal
       .exec("SELECT COUNT(*) AS count FROM pings WHERE to_handle = ?1", input.to)

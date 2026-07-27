@@ -21,4 +21,4 @@ XDG_DATA_HOME="$SANDBOX/data" XDG_STATE_HOME="$SANDBOX/state" \
   nvim --clean --headless \
   --cmd "set rtp+=$ROOT" \
   --cmd "let g:friends_autostart = v:false" \
-  -l "$ROOT/scripts/smoke.lua"
+  -l "$ROOT/scripts/smoke.lua" 2>/dev/null

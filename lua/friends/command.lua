@@ -36,11 +36,13 @@ local subcommands = {
       end
       local identity = require("friends.identity").get()
       local message = #args > 1 and table.concat(vim.list_slice(args, 2), " ") or nil
-      require("friends.api").send_ping(identity.handle, identity.token, args[1], message, function(_, status)
-        if status == 404 then
+      require("friends.api").send_ping(identity.handle, identity.token, args[1], message, function(_, status, code)
+        if code == "unknown_handle" then
+          util.notify("you gotta register before you can ping", vim.log.levels.ERROR)
+        elseif status == 404 then
           util.notify(args[1] .. " isn't registered", vim.log.levels.ERROR)
         elseif status == 429 then
-          util.notify("slow down — you just pinged someone", vim.log.levels.WARN)
+          util.notify("the refractory period is not a joke", vim.log.levels.WARN)
         elseif not status or status < 200 or status >= 300 then
           util.notify("ping failed: " .. (require("friends.api").last_error or "?"), vim.log.levels.ERROR)
         else

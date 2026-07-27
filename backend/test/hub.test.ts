@@ -19,7 +19,7 @@ const LYNX = { handle: "wild-lynx-90", token: "lynx-token-00001", ip: "1.2.3.5" 
 const deliver = async (hub: HubCore, u: typeof U) => {
   const result = await hub.heartbeat({ handle: u.handle, token: u.token, seconds: 1 });
   if (isError(result)) {
-    throw new Error(`heartbeat for ${u.handle} failed: ${result.error}`);
+    throw new Error(`heartbeat for ${u.handle} failed: ${result.code}`);
   }
   return result.pings ?? [];
 };
@@ -242,7 +242,7 @@ test("ping: cooldown rejects rapid pings from the same sender", async () => {
     await hub.register(LYNX);
     await hub.sendPing({ handle: U.handle, token: U.token, to: LYNX.handle });
     const second = await hub.sendPing({ handle: U.handle, token: U.token, to: LYNX.handle });
-    expect(isError(second) && second.status).toBe(429);
+    expect(isError(second) && second.code).toBe("ping_cooldown");
 
     at(NOON + MIN_PING_GAP_SECONDS);
     const third = await hub.sendPing({ handle: U.handle, token: U.token, to: LYNX.handle });
@@ -263,7 +263,7 @@ test("ping: 404s an unknown recipient", async () => {
       token: U.token,
       to: "nobody-here-00",
     });
-    expect(isError(result) && result.status).toBe(404);
+    expect(isError(result) && result.code).toBe("unknown_recipient");
   } finally {
     setSystemTime();
   }
@@ -281,7 +281,7 @@ test("ping: rejects the wrong sender token", async () => {
       token: "someone-elses-token",
       to: LYNX.handle,
     });
-    expect(isError(result) && result.status).toBe(403);
+    expect(isError(result) && result.code).toBe("wrong_token");
   } finally {
     setSystemTime();
   }
