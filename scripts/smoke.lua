@@ -60,6 +60,45 @@ local _, limited = await(function(cb)
 end)
 check("rapid heartbeats are rate limited", limited == 429, tostring(limited))
 
+local my_identity = require("friends.identity").get()
+
+local sent = await(function(cb)
+  api.send_ping(FRIEND, TOKEN, me, "hello from smoke test", cb)
+end)
+check("ping accepted", sent and sent.ok == true, vim.inspect(sent))
+
+local _, cooldown_status = await(function(cb)
+  api.send_ping(FRIEND, TOKEN, me, nil, cb)
+end)
+check("rapid pings from same sender are rate limited", cooldown_status == 429, tostring(cooldown_status))
+
+local _, unknown_status = await(function(cb)
+  api.send_ping(FRIEND, TOKEN, "nobody-here-00", nil, cb)
+end)
+check("ping to unregistered handle 404s", unknown_status == 404, tostring(unknown_status))
+
+local polled = await(function(cb)
+  api.poll_pings(me, my_identity.token, cb)
+end)
+check(
+  "ping delivered on poll",
+  polled
+    and polled.pings
+    and #polled.pings == 1
+    and polled.pings[1].from == FRIEND
+    and polled.pings[1].message == "hello from smoke test",
+  vim.inspect(polled)
+)
+
+local drained = await(function(cb)
+  api.poll_pings(me, my_identity.token, cb)
+end)
+check(
+  "ping queue drains after poll",
+  drained and drained.pings and #drained.pings == 0,
+  vim.inspect(drained)
+)
+
 local roster = require("friends.roster")
 roster.add(FRIEND)
 vim.wait(5000, function()

@@ -95,8 +95,20 @@ M.leaderboard = function(opts, cb)
   request("GET", "/v1/leaderboard" .. query, nil, cb)
 end
 
+M.send_ping = function(handle, token, to, message, cb)
+  local body = { token = token, to = to }
+  if message then
+    body.message = message
+  end
+  request("POST", "/v1/users/" .. handle .. "/ping", body, cb or function() end)
+end
+
+M.poll_pings = function(handle, token, cb)
+  request("POST", "/v1/users/" .. handle .. "/pings/poll", { token = token }, cb)
+end
+
 -- Blocking; only for :checkhealth.
-M.ping = function()
+M.healthcheck = function()
   local out = vim
     .system({ "curl", "-fsS", "--max-time", "2", config.options.url }, { text = true })
     :wait()

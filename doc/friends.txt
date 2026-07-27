@@ -23,6 +23,11 @@ the handle is yours. Both are stored locally; use |:Friends key| and
 tracking is enabled, the plugin batches your activity into periodic
 heartbeats to the backend; disable `track` to lurk.
 
+You can ping a friend with |:Friends-ping|: a small popup appears in the
+corner of their Neovim window within a few seconds. Sending and receiving
+pings both require a registered identity, so `track = false` (lurking)
+disables pings too.
+
 ==============================================================================
 2. SETUP                                                        *friends-setup*
 
@@ -59,6 +64,14 @@ The defaults: >lua
       -- Only rank you and your friends instead of the whole world.
       friends_only = false,
     },
+    ping = {
+      -- Receive pings from friends. Sending is unaffected by this option.
+      enabled = true,
+      -- Seconds between checks for incoming pings. 0 disables receiving.
+      poll_interval = 10,
+      -- How long the ping popup stays on screen, in milliseconds.
+      duration_ms = 4000,
+    },
   })
 <
 ==============================================================================
@@ -84,6 +97,14 @@ The defaults: >lua
 :Friends add {handle}   Follow a friend by handle.
 :Friends remove {handle}
                         Unfollow a friend.
+                                                                *:Friends-ping*
+:Friends ping {handle} [message]
+                        Ping a friend already in your roster (|:Friends add|
+                        them first). A small popup appears in the corner of
+                        their Neovim window within `ping.poll_interval`
+                        seconds and disappears on its own after
+                        `ping.duration_ms`. Rate limited to one ping every
+                        few seconds per sender.
 :Friends list           Show your friends (and yourself), who is active, and
                         their hours. The window below the list shows the
                         highlighted user's last-active time and their tracked

@@ -29,6 +29,14 @@ M.defaults = function()
       -- Only rank you and your friends instead of the whole world.
       friends_only = false,
     },
+    ping = {
+      -- Receive pings from friends. Sending is unaffected by this option.
+      enabled = true,
+      -- Seconds between checks for incoming pings. 0 disables receiving.
+      poll_interval = 10,
+      -- How long the ping popup stays on screen, in milliseconds.
+      duration_ms = 4000,
+    },
   }
 end
 

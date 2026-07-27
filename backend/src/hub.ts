@@ -7,6 +7,9 @@ export const FLUSH_INTERVAL_SECONDS = 600;
 export const MIN_HEARTBEAT_GAP_SECONDS = 15;
 export const MAX_REGISTRATIONS_PER_DAY = 1000;
 export const MAX_REGISTRATIONS_PER_IP_PER_DAY = 20;
+export const MAX_PENDING_PINGS_PER_RECIPIENT = 20;
+export const PING_TTL_SECONDS = 600;
+export const MIN_PING_GAP_SECONDS = 3;
 
 const MEMORY_DAYS = 7;
 const D1_RETENTION_DAYS = 10;
@@ -18,6 +21,8 @@ type UserState = User & { token: string; days: Map<string, DayBucket> };
 export type HubError = { error: string; status: 403 | 404 | 409 | 429 | 503 };
 
 export type LeaderboardEntry = User & { value: number };
+
+export type PendingPing = { from: string; message: string | null; at: number };
 
 const mergeCounters = (
   a: Record<string, number>,
@@ -251,6 +256,76 @@ export class HubCore {
     }
     this.journal.exec("DELETE FROM pending WHERE handle = ?1", input.handle);
     return { ok: true };
+  }
+
+  async sendPing(input: {
+    handle: string;
+    token: string;
+    to: string;
+    message?: string;
+  }): Promise<HubError | { ok: true }> {
+    await this.ensureHydrated();
+    const sender = this.users.get(input.handle);
+    if (!sender) {
+      return { error: "not found", status: 404 };
+    }
+    if (sender.token !== input.token) {
+      return { error: "handle taken", status: 403 };
+    }
+    if (!this.users.has(input.to)) {
+      return { error: "not found", status: 404 };
+    }
+    const at = this.now();
+    const last = this.journal
+      .exec("SELECT MAX(at) AS at FROM pings WHERE from_handle = ?1", input.handle)
+      .toArray()[0]?.at as number | null;
+    if (last !== null && last !== undefined && at - last < MIN_PING_GAP_SECONDS) {
+      return { error: "too many pings; wait a moment", status: 429 };
+    }
+    const pending = this.journal
+      .exec("SELECT id FROM pings WHERE to_handle = ?1 ORDER BY at ASC, id ASC", input.to)
+      .toArray();
+    if (pending.length >= MAX_PENDING_PINGS_PER_RECIPIENT) {
+      this.journal.exec("DELETE FROM pings WHERE id = ?1", pending[0]!.id as number);
+    }
+    this.journal.exec(
+      "INSERT INTO pings (to_handle, from_handle, message, at) VALUES (?1, ?2, ?3, ?4)",
+      input.to,
+      input.handle,
+      input.message ?? null,
+      at,
+    );
+    return { ok: true };
+  }
+
+  async checkPings(input: {
+    handle: string;
+    token: string;
+  }): Promise<HubError | { pings: PendingPing[]; at: number }> {
+    await this.ensureHydrated();
+    const user = this.users.get(input.handle);
+    if (!user) {
+      return { error: "not found", status: 404 };
+    }
+    if (user.token !== input.token) {
+      return { error: "handle taken", status: 403 };
+    }
+    const at = this.now();
+    const rows = this.journal
+      .exec(
+        "SELECT from_handle, message, at FROM pings WHERE to_handle = ?1 ORDER BY at ASC, id ASC",
+        input.handle,
+      )
+      .toArray();
+    this.journal.exec("DELETE FROM pings WHERE to_handle = ?1", input.handle);
+    const pings = rows
+      .filter((row) => at - (row.at as number) <= PING_TTL_SECONDS)
+      .map((row) => ({
+        from: row.from_handle as string,
+        message: (row.message as string | null) ?? null,
+        at: row.at as number,
+      }));
+    return { pings, at };
   }
 
   async status(handles: string[]): Promise<{ users: User[]; at: number }> {

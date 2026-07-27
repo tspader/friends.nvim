@@ -42,6 +42,21 @@ export const HeartbeatBody = z.object({
 
 export const DeleteBody = z.object({ token: Token });
 
+export const PingMessage = z
+  .string()
+  .trim()
+  .min(1)
+  .max(200)
+  .regex(/^\P{C}+$/u);
+
+export const PingBody = z.object({
+  token: Token,
+  to: Handle,
+  message: PingMessage.optional(),
+});
+
+export const PingsPollBody = z.object({ token: Token });
+
 export const StatusQuery = z.object({
   handles: handleList(MAX_STATUS_HANDLES),
 });
@@ -63,3 +78,5 @@ export type StatusQuery = z.infer<typeof StatusQuery>;
 export type LeaderboardQuery = z.infer<typeof LeaderboardQuery>;
 export type Period = z.infer<typeof Period>;
 export type Metric = z.infer<typeof Metric>;
+export type PingBody = z.infer<typeof PingBody>;
+export type PingsPollBody = z.infer<typeof PingsPollBody>;
