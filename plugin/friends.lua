@@ -22,7 +22,7 @@ vim.api.nvim_create_user_command("Friends", function(opts)
   require("friends.command").run(opts.fargs)
 end, {
   nargs = "*",
-  desc = "friends.nvim: leaderboard | add/remove {handle} | list | name {name} | handle | key | claim | toggle",
+  desc = "friends.nvim: leaderboard | add/remove {handle} | ping {handle} [message] | list | name {name} | handle | key | claim | toggle",
   complete = function(arglead, line)
     return require("friends.command").complete(arglead, line)
   end,

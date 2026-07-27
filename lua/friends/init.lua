@@ -22,6 +22,7 @@ end
 M.stop = function()
   require("friends.tracker").stop()
   require("friends.status").stop()
+  require("friends.ping").dismiss()
   started = false
 end
 

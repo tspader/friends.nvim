@@ -29,6 +29,15 @@ M.defaults = function()
       -- Only rank you and your friends instead of the whole world.
       friends_only = false,
     },
+    ping = {
+      -- Show pings from friends. Sending is unaffected by this option.
+      -- Pings ride along with activity heartbeats, so they only arrive
+      -- while you are tracking and editing. Pings from handles outside
+      -- your roster are ignored.
+      enabled = true,
+      -- How long the ping popup stays on screen, in milliseconds.
+      duration_ms = 4000,
+    },
   }
 end
 

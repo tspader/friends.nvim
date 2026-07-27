@@ -13,9 +13,6 @@ local capped = function(handles)
   return handles
 end
 
--- cb(data, status): called on the main loop with the decoded JSON body (nil
--- on transport/HTTP failure, recorded in M.last_error) and the HTTP status
--- (0 when the request never made it out).
 local request = function(method, path, body, cb)
   local args = {
     "curl",
@@ -48,9 +45,10 @@ local request = function(method, path, body, cb)
       local ok, decoded =
         pcall(vim.json.decode, payload or "", { luanil = { object = true, array = true } })
       if status < 200 or status >= 300 or not ok then
-        M.last_error = (ok and type(decoded) == "table" and decoded.error)
+        local body = ok and type(decoded) == "table" and decoded or nil
+        M.last_error = (body and body.error)
           or string.format("%s %s -> %d", method, path, status)
-        cb(nil, status)
+        cb(nil, status, body and body.code or nil)
         return
       end
       M.last_error = nil
@@ -95,8 +93,16 @@ M.leaderboard = function(opts, cb)
   request("GET", "/v1/leaderboard" .. query, nil, cb)
 end
 
+M.send_ping = function(handle, token, to, message, cb)
+  local body = { token = token, to = to }
+  if message then
+    body.message = message
+  end
+  request("POST", "/v1/users/" .. handle .. "/ping", body, cb or function() end)
+end
+
 -- Blocking; only for :checkhealth.
-M.ping = function()
+M.healthcheck = function()
   local out = vim
     .system({ "curl", "-fsS", "--max-time", "2", config.options.url }, { text = true })
     :wait()

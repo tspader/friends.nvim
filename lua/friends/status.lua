@@ -62,6 +62,15 @@ M.users = function()
   return cached_users
 end
 
+M.display_name = function(handle)
+  for _, user in ipairs(cached_users) do
+    if user.handle == handle then
+      return user.display_name or handle
+    end
+  end
+  return handle
+end
+
 -- Whether any status data has arrived yet; while false, a handle missing
 -- from users() means "unknown", not "unregistered".
 M.fetched = function()

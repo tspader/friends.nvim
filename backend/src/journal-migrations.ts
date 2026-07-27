@@ -1,9 +1,10 @@
 import m0001 from "../journal-migrations/0001_pending.sql";
 import m0002 from "../journal-migrations/0002_counters.sql";
+import m0003 from "../journal-migrations/0003_pings.sql";
 import type { Journal } from "./hub";
 
 // Append only!
-const MIGRATIONS = [m0001, m0002];
+const MIGRATIONS = [m0001, m0002, m0003];
 
 const baseline = (journal: Journal): number => {
   const row = journal

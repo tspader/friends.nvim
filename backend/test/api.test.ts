@@ -23,6 +23,14 @@ const heartbeat = (u: typeof OTTER, seconds: number, now?: number): Step => ({
   now,
 });
 
+const ping = (u: typeof OTTER, to: string, message?: string, now?: number): Step => ({
+  method: "POST" as const,
+  path: `/api/v1/users/${u.handle}/ping`,
+  body: { token: u.token, to, message },
+  now,
+});
+
+
 apiTests({
   "register: creates a user": {
     request: register(OTTER),
@@ -59,7 +67,7 @@ apiTests({
       path: `/api/v1/users/${OTTER.handle}`,
       body: { token: "someone-elses-token" },
     },
-    expect: { status: 409, body: { error: "handle taken" } },
+    expect: { status: 409, body: { error: "handle taken", code: "handle_taken" } },
   },
 
   "register: rejects missing token": {
@@ -133,7 +141,7 @@ apiTests({
       path: `/api/v1/users/${OTTER.handle}/heartbeat`,
       body: { token: "someone-elses-token", seconds: 60 },
     },
-    expect: { status: 403, body: { error: "handle taken" } },
+    expect: { status: 403, body: { error: "wrong token" } },
   },
 
   "heartbeat: rate limits heartbeats closer than 15s": {
@@ -281,7 +289,7 @@ apiTests({
       path: `/api/v1/users/${OTTER.handle}`,
       body: { token: "someone-elses-token" },
     },
-    expect: { status: 403, body: { error: "handle taken" } },
+    expect: { status: 403, body: { error: "wrong token" } },
   },
 
   "delete: 404s an unknown handle": {
@@ -520,5 +528,105 @@ apiTests({
   "leaderboard: rejects unknown metric": {
     request: { method: "GET", path: "/api/v1/leaderboard?metric=made_up_metric" },
     expect: { status: 400 },
+  },
+
+  "ping: rides the recipient's heartbeat response": {
+    setup: [register(OTTER, {}, NOON), register(LYNX, {}, NOON), ping(OTTER, LYNX.handle, "hey", NOON)],
+    request: heartbeat(LYNX, 60, NOON),
+    expect: { status: 200, body: { pings: [{ from: OTTER.handle, message: "hey" }] } },
+  },
+
+  "ping: a delivered ping is not repeated on the next heartbeat": {
+    setup: [
+      register(OTTER, {}, NOON),
+      register(LYNX, {}, NOON),
+      ping(OTTER, LYNX.handle, "hey", NOON),
+      heartbeat(LYNX, 60, NOON),
+    ],
+    request: heartbeat(LYNX, 60, NOON + 60),
+    expect: { status: 200, notContains: "pings" },
+  },
+
+  "ping: an empty queue omits pings from the heartbeat response": {
+    setup: [register(LYNX, {}, NOON)],
+    request: heartbeat(LYNX, 60, NOON),
+    expect: { status: 200, notContains: "pings" },
+  },
+
+  "ping: 404s an unknown recipient": {
+    setup: [register(OTTER, {}, NOON)],
+    request: ping(OTTER, "nobody-here-00", undefined, NOON),
+    expect: { status: 404, body: { error: "not found", code: "unknown_recipient" } },
+  },
+
+  "ping: rejects an unknown sender handle": {
+    request: ping(OTTER, LYNX.handle, undefined, NOON),
+    expect: { status: 404, body: { error: "not found", code: "unknown_handle" } },
+  },
+
+  "ping: rejects the wrong sender token": {
+    setup: [register(OTTER, {}, NOON), register(LYNX, {}, NOON)],
+    request: {
+      method: "POST",
+      path: `/api/v1/users/${OTTER.handle}/ping`,
+      body: { token: "someone-elses-token", to: LYNX.handle },
+      now: NOON,
+    },
+    expect: { status: 403, body: { error: "wrong token", code: "wrong_token" } },
+  },
+
+  "ping: rejects missing to handle": {
+    request: {
+      method: "POST",
+      path: `/api/v1/users/${OTTER.handle}/ping`,
+      body: { token: OTTER.token },
+    },
+    expect: { status: 400, body: { error: "invalid to handle" } },
+  },
+
+  "ping: rejects an invalid to handle": {
+    request: {
+      method: "POST",
+      path: `/api/v1/users/${OTTER.handle}/ping`,
+      body: { token: OTTER.token, to: "Not-Valid!" },
+    },
+    expect: { status: 400, body: { error: "invalid to handle" } },
+  },
+
+  "ping: rejects an over-long message": {
+    request: {
+      method: "POST",
+      path: `/api/v1/users/${OTTER.handle}/ping`,
+      body: { token: OTTER.token, to: LYNX.handle, message: "x".repeat(201) },
+    },
+    expect: { status: 400, body: { error: "invalid message" } },
+  },
+
+  "ping: rejects control characters in message": {
+    request: {
+      method: "POST",
+      path: `/api/v1/users/${OTTER.handle}/ping`,
+      body: { token: OTTER.token, to: LYNX.handle, message: "evil[2Jmessage" },
+    },
+    expect: { status: 400, body: { error: "invalid message" } },
+  },
+
+  "ping: rate limits rapid pings from the same sender": {
+    setup: [
+      register(OTTER, {}, NOON),
+      register(LYNX, {}, NOON),
+      ping(OTTER, LYNX.handle, undefined, NOON),
+    ],
+    request: ping(OTTER, LYNX.handle, undefined, NOON),
+    expect: { status: 429 },
+  },
+
+  "ping: the poll endpoint is gone": {
+    request: {
+      method: "POST",
+      path: `/api/v1/users/${OTTER.handle}/pings/poll`,
+      body: { token: OTTER.token },
+    },
+    expect: { status: 404 },
   },
 });

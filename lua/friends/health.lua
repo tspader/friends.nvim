@@ -30,7 +30,7 @@ M.check = function()
     health.warn("activity tracking not running")
   end
 
-  if require("friends.api").ping() then
+  if require("friends.api").healthcheck() then
     health.ok("backend reachable: " .. config.options.url)
   else
     health.error("backend unreachable: " .. config.options.url)

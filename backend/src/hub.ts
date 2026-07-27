@@ -7,6 +7,9 @@ export const FLUSH_INTERVAL_SECONDS = 600;
 export const MIN_HEARTBEAT_GAP_SECONDS = 15;
 export const MAX_REGISTRATIONS_PER_DAY = 1000;
 export const MAX_REGISTRATIONS_PER_IP_PER_DAY = 20;
+export const MAX_PENDING_PINGS_PER_RECIPIENT = 20;
+export const PING_TTL_SECONDS = 600;
+export const MIN_PING_GAP_SECONDS = 3;
 
 const MEMORY_DAYS = 7;
 const D1_RETENTION_DAYS = 10;
@@ -15,9 +18,21 @@ const FLUSH_CHUNK = 100;
 type DayBucket = { seconds: number; counters: Record<string, number> };
 type UserState = User & { token: string; days: Map<string, DayBucket> };
 
-export type HubError = { error: string; status: 403 | 404 | 409 | 429 | 503 };
+export type HubErrorCode =
+  | "handle_taken"
+  | "registration_limit"
+  | "ip_registration_limit"
+  | "unknown_handle"
+  | "unknown_recipient"
+  | "wrong_token"
+  | "heartbeat_cooldown"
+  | "ping_cooldown";
+
+export type HubError = { code: HubErrorCode };
 
 export type LeaderboardEntry = User & { value: number };
+
+export type PendingPing = { from: string; message: string | null; at: number };
 
 const mergeCounters = (
   a: Record<string, number>,
@@ -38,7 +53,7 @@ export type Journal = {
 };
 
 const isError = (result: unknown): result is HubError =>
-  typeof result === "object" && result !== null && "error" in result;
+  typeof result === "object" && result !== null && "code" in result;
 
 const publicUser = (user: UserState): User => ({
   handle: user.handle,
@@ -58,6 +73,7 @@ export class HubCore {
   private regDay = "";
   private regCount = 0;
   private regByIp = new Map<string, number>();
+  private lastPingAt = new Map<string, number>();
   private lastPruneDay = "";
 
   constructor(
@@ -122,7 +138,7 @@ export class HubCore {
     const existing = this.users.get(input.handle);
     if (existing) {
       if (existing.token !== input.token) {
-        return { error: "handle taken", status: 409 };
+        return { code: "handle_taken" };
       }
       if (input.display_name !== undefined && input.display_name !== existing.display_name) {
         await this.db.setDisplayName(input.handle, input.display_name);
@@ -138,11 +154,11 @@ export class HubCore {
       this.regByIp.clear();
     }
     if (this.regCount >= MAX_REGISTRATIONS_PER_DAY) {
-      return { error: "no new handles left today; try again tomorrow", status: 503 };
+      return { code: "registration_limit" };
     }
     const ipCount = this.regByIp.get(input.ip) ?? 0;
     if (ipCount >= MAX_REGISTRATIONS_PER_IP_PER_DAY) {
-      return { error: "too many new handles from your address today", status: 429 };
+      return { code: "ip_registration_limit" };
     }
 
     const user: UserState = {
@@ -172,21 +188,21 @@ export class HubCore {
     seconds: number;
     counters?: Partial<Record<string, number>>;
     handles?: string[];
-  }): Promise<HubError | { user: User; users?: User[]; at: number }> {
+  }): Promise<HubError | { user: User; users?: User[]; pings?: PendingPing[]; at: number }> {
     await this.ensureHydrated();
     const user = this.users.get(input.handle);
     if (!user) {
-      return { error: "not found", status: 404 };
+      return { code: "unknown_handle" };
     }
     if (user.token !== input.token) {
-      return { error: "handle taken", status: 403 };
+      return { code: "wrong_token" };
     }
     const at = this.now();
     let credited = input.seconds;
     if (user.last_seen_at !== null) {
       const gap = at - user.last_seen_at;
       if (gap < MIN_HEARTBEAT_GAP_SECONDS) {
-        return { error: "too many heartbeats; wait a moment", status: 429 };
+        return { code: "heartbeat_cooldown" };
       }
       credited = Math.min(input.seconds, gap);
     }
@@ -221,12 +237,16 @@ export class HubCore {
     this.dirtyDays.add(dayKey(input.handle, day));
     await this.requestFlush();
 
-    const result: { user: User; users?: User[]; at: number } = {
+    const result: { user: User; users?: User[]; pings?: PendingPing[]; at: number } = {
       user: publicUser(user),
       at,
     };
     if (input.handles) {
       result.users = this.lookup(input.handles);
+    }
+    const pings = this.drainPings(input.handle, at);
+    if (pings.length > 0) {
+      result.pings = pings;
     }
     return result;
   }
@@ -238,10 +258,10 @@ export class HubCore {
     await this.ensureHydrated();
     const user = this.users.get(input.handle);
     if (!user) {
-      return { error: "not found", status: 404 };
+      return { code: "unknown_handle" };
     }
     if (user.token !== input.token) {
-      return { error: "handle taken", status: 403 };
+      return { code: "wrong_token" };
     }
     await this.db.deleteUser(input.handle);
     this.users.delete(input.handle);
@@ -250,7 +270,75 @@ export class HubCore {
       this.dirtyDays.delete(dayKey(input.handle, day));
     }
     this.journal.exec("DELETE FROM pending WHERE handle = ?1", input.handle);
+    this.journal.exec(
+      "DELETE FROM pings WHERE to_handle = ?1 OR from_handle = ?1",
+      input.handle,
+    );
+    this.lastPingAt.delete(input.handle);
     return { ok: true };
+  }
+
+  async sendPing(input: {
+    handle: string;
+    token: string;
+    to: string;
+    message?: string;
+  }): Promise<HubError | { ok: true }> {
+    await this.ensureHydrated();
+    const sender = this.users.get(input.handle);
+    if (!sender) {
+      return { code: "unknown_handle" };
+    }
+    if (sender.token !== input.token) {
+      return { code: "wrong_token" };
+    }
+    if (!this.users.has(input.to)) {
+      return { code: "unknown_recipient" };
+    }
+    const at = this.now();
+    const last = this.lastPingAt.get(input.handle);
+    if (last !== undefined && at - last < MIN_PING_GAP_SECONDS) {
+      return { code: "ping_cooldown" };
+    }
+    const pending = this.journal
+      .exec("SELECT COUNT(*) AS count FROM pings WHERE to_handle = ?1", input.to)
+      .toArray()[0]?.count as number;
+    if (pending >= MAX_PENDING_PINGS_PER_RECIPIENT) {
+      this.journal.exec(
+        "DELETE FROM pings WHERE id IN " +
+          "(SELECT id FROM pings WHERE to_handle = ?1 ORDER BY at ASC, id ASC LIMIT 1)",
+        input.to,
+      );
+    }
+    this.journal.exec(
+      "INSERT INTO pings (to_handle, from_handle, message, at) VALUES (?1, ?2, ?3, ?4)",
+      input.to,
+      input.handle,
+      input.message ?? null,
+      at,
+    );
+    this.lastPingAt.set(input.handle, at);
+    return { ok: true };
+  }
+
+  private drainPings(handle: string, at: number): PendingPing[] {
+    const rows = this.journal
+      .exec(
+        "SELECT from_handle, message, at FROM pings WHERE to_handle = ?1 ORDER BY at ASC, id ASC",
+        handle,
+      )
+      .toArray();
+    if (rows.length === 0) {
+      return [];
+    }
+    this.journal.exec("DELETE FROM pings WHERE to_handle = ?1", handle);
+    return rows
+      .filter((row) => at - (row.at as number) <= PING_TTL_SECONDS)
+      .map((row) => ({
+        from: row.from_handle as string,
+        message: (row.message as string | null) ?? null,
+        at: row.at as number,
+      }));
   }
 
   async status(handles: string[]): Promise<{ users: User[]; at: number }> {
@@ -370,6 +458,7 @@ export class HubCore {
       return;
     }
     this.lastPruneDay = today;
+    this.journal.exec("DELETE FROM pings WHERE at < ?1", at - PING_TTL_SECONDS);
     const memoryCutoff = utcDay(at - (MEMORY_DAYS - 1) * 86400);
     for (const user of this.users.values()) {
       for (const day of user.days.keys()) {

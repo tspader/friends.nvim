@@ -1,11 +1,31 @@
 import { expect, setSystemTime, test } from "bun:test";
-import { createHub, isError } from "../src/hub";
+import {
+  createHub,
+  isError,
+  MAX_PENDING_PINGS_PER_RECIPIENT,
+  MIN_HEARTBEAT_GAP_SECONDS,
+  MIN_PING_GAP_SECONDS,
+  PING_TTL_SECONDS,
+  type HubCore,
+} from "../src/hub";
 import { createLocalDb, createLocalJournal } from "../src/sqlite";
 
 const NOON = 1768046400;
 const at = (unix: number) => setSystemTime(new Date(unix * 1000));
 
 const U = { handle: "brave-otter-42", token: "otter-token-0001", ip: "1.2.3.4" };
+const LYNX = { handle: "wild-lynx-90", token: "lynx-token-00001", ip: "1.2.3.5" };
+
+const deliver = async (hub: HubCore, u: typeof U) => {
+  const result = await hub.heartbeat({ handle: u.handle, token: u.token, seconds: 1 });
+  if (isError(result)) {
+    throw new Error(`heartbeat for ${u.handle} failed: ${result.code}`);
+  }
+  return result.pings ?? [];
+};
+
+const pingRows = (journal: ReturnType<typeof createLocalJournal>) =>
+  journal.exec("SELECT COUNT(*) AS count FROM pings").toArray()[0]?.count as number;
 
 const totalInD1 = async (d1: D1Database): Promise<number | undefined> => {
   const row = await d1
@@ -149,6 +169,203 @@ test("flush failure keeps pending time for the next attempt", async () => {
 
     await hub.flush();
     expect(await totalInD1(d1)).toBe(60);
+  } finally {
+    setSystemTime();
+  }
+});
+
+test("ping: rides the heartbeat response and drains the queue", async () => {
+  const d1 = createLocalDb();
+  const hub = createHub(d1, createLocalJournal(), () => {});
+  try {
+    at(NOON);
+    await hub.register(U);
+    await hub.register(LYNX);
+    const sent = await hub.sendPing({
+      handle: U.handle,
+      token: U.token,
+      to: LYNX.handle,
+      message: "hey",
+    });
+    expect(isError(sent)).toBe(false);
+
+    expect(await deliver(hub, LYNX)).toEqual([{ from: U.handle, message: "hey", at: NOON }]);
+
+    at(NOON + MIN_HEARTBEAT_GAP_SECONDS);
+    expect(await deliver(hub, LYNX)).toEqual([]);
+  } finally {
+    setSystemTime();
+  }
+});
+
+test("ping: a heartbeat from someone else does not drain your queue", async () => {
+  const d1 = createLocalDb();
+  const hub = createHub(d1, createLocalJournal(), () => {});
+  try {
+    at(NOON);
+    await hub.register(U);
+    await hub.register(LYNX);
+    await hub.sendPing({ handle: U.handle, token: U.token, to: LYNX.handle });
+
+    expect(await deliver(hub, U)).toEqual([]);
+    expect(await deliver(hub, LYNX)).toHaveLength(1);
+  } finally {
+    setSystemTime();
+  }
+});
+
+test("ping: survives a restart via the journal", async () => {
+  const d1 = createLocalDb();
+  const journal = createLocalJournal();
+  try {
+    at(NOON);
+    const hub = createHub(d1, journal, () => {});
+    await hub.register(U);
+    await hub.register(LYNX);
+    await hub.sendPing({ handle: U.handle, token: U.token, to: LYNX.handle });
+
+    const restarted = createHub(d1, journal, () => {});
+    const pings = await deliver(restarted, LYNX);
+    expect(pings).toHaveLength(1);
+    expect(pings[0]?.from).toBe(U.handle);
+  } finally {
+    setSystemTime();
+  }
+});
+
+test("ping: cooldown rejects rapid pings from the same sender", async () => {
+  const d1 = createLocalDb();
+  const hub = createHub(d1, createLocalJournal(), () => {});
+  try {
+    at(NOON);
+    await hub.register(U);
+    await hub.register(LYNX);
+    await hub.sendPing({ handle: U.handle, token: U.token, to: LYNX.handle });
+    const second = await hub.sendPing({ handle: U.handle, token: U.token, to: LYNX.handle });
+    expect(isError(second) && second.code).toBe("ping_cooldown");
+
+    at(NOON + MIN_PING_GAP_SECONDS);
+    const third = await hub.sendPing({ handle: U.handle, token: U.token, to: LYNX.handle });
+    expect(isError(third)).toBe(false);
+  } finally {
+    setSystemTime();
+  }
+});
+
+test("ping: 404s an unknown recipient", async () => {
+  const d1 = createLocalDb();
+  const hub = createHub(d1, createLocalJournal(), () => {});
+  try {
+    at(NOON);
+    await hub.register(U);
+    const result = await hub.sendPing({
+      handle: U.handle,
+      token: U.token,
+      to: "nobody-here-00",
+    });
+    expect(isError(result) && result.code).toBe("unknown_recipient");
+  } finally {
+    setSystemTime();
+  }
+});
+
+test("ping: rejects the wrong sender token", async () => {
+  const d1 = createLocalDb();
+  const hub = createHub(d1, createLocalJournal(), () => {});
+  try {
+    at(NOON);
+    await hub.register(U);
+    await hub.register(LYNX);
+    const result = await hub.sendPing({
+      handle: U.handle,
+      token: "someone-elses-token",
+      to: LYNX.handle,
+    });
+    expect(isError(result) && result.code).toBe("wrong_token");
+  } finally {
+    setSystemTime();
+  }
+});
+
+test("ping: queue caps at MAX_PENDING_PINGS_PER_RECIPIENT, dropping the oldest", async () => {
+  const d1 = createLocalDb();
+  const hub = createHub(d1, createLocalJournal(), () => {});
+  try {
+    await hub.register(LYNX);
+    for (let i = 0; i < MAX_PENDING_PINGS_PER_RECIPIENT + 1; i++) {
+      at(NOON + i * MIN_PING_GAP_SECONDS);
+      const sender = {
+        handle: `sender-user-${String(i).padStart(2, "0")}`,
+        token: `sender-token-000${i}`,
+        ip: `9.9.9.${i}`,
+      };
+      await hub.register(sender);
+      await hub.sendPing({
+        handle: sender.handle,
+        token: sender.token,
+        to: LYNX.handle,
+        message: String(i),
+      });
+    }
+    const pings = await deliver(hub, LYNX);
+    expect(pings).toHaveLength(MAX_PENDING_PINGS_PER_RECIPIENT);
+    expect(pings[0]?.message).toBe("1");
+    expect(pings.at(-1)?.message).toBe(String(MAX_PENDING_PINGS_PER_RECIPIENT));
+  } finally {
+    setSystemTime();
+  }
+});
+
+test("ping: drops pings older than PING_TTL_SECONDS", async () => {
+  const d1 = createLocalDb();
+  const hub = createHub(d1, createLocalJournal(), () => {});
+  try {
+    at(NOON);
+    await hub.register(U);
+    await hub.register(LYNX);
+    await hub.sendPing({ handle: U.handle, token: U.token, to: LYNX.handle });
+
+    at(NOON + PING_TTL_SECONDS + 1);
+    expect(await deliver(hub, LYNX)).toEqual([]);
+  } finally {
+    setSystemTime();
+  }
+});
+
+test("ping: deleting a user clears pings to and from them", async () => {
+  const d1 = createLocalDb();
+  const journal = createLocalJournal();
+  const hub = createHub(d1, journal, () => {});
+  try {
+    at(NOON);
+    await hub.register(U);
+    await hub.register(LYNX);
+    await hub.sendPing({ handle: U.handle, token: U.token, to: LYNX.handle });
+    await hub.sendPing({ handle: LYNX.handle, token: LYNX.token, to: U.handle });
+    expect(pingRows(journal)).toBe(2);
+
+    const deleted = await hub.deleteUser({ handle: LYNX.handle, token: LYNX.token });
+    expect(isError(deleted)).toBe(false);
+    expect(pingRows(journal)).toBe(0);
+  } finally {
+    setSystemTime();
+  }
+});
+
+test("ping: prune sweeps expired ping rows", async () => {
+  const d1 = createLocalDb();
+  const journal = createLocalJournal();
+  const hub = createHub(d1, journal, () => {});
+  try {
+    at(NOON);
+    await hub.register(U);
+    await hub.register(LYNX);
+    await hub.sendPing({ handle: U.handle, token: U.token, to: LYNX.handle });
+    expect(pingRows(journal)).toBe(1);
+
+    at(NOON + 2 * 86400);
+    await hub.flush();
+    expect(pingRows(journal)).toBe(0);
   } finally {
     setSystemTime();
   }
