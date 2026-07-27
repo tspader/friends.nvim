@@ -30,12 +30,6 @@ const ping = (u: typeof OTTER, to: string, message?: string, now?: number): Step
   now,
 });
 
-const pollPings = (u: typeof OTTER, now?: number): Step => ({
-  method: "POST" as const,
-  path: `/api/v1/users/${u.handle}/pings/poll`,
-  body: { token: u.token },
-  now,
-});
 
 apiTests({
   "register: creates a user": {
@@ -536,21 +530,27 @@ apiTests({
     expect: { status: 400 },
   },
 
-  "ping: send and poll round trip": {
+  "ping: rides the recipient's heartbeat response": {
     setup: [register(OTTER, {}, NOON), register(LYNX, {}, NOON), ping(OTTER, LYNX.handle, "hey", NOON)],
-    request: pollPings(LYNX, NOON),
+    request: heartbeat(LYNX, 60, NOON),
     expect: { status: 200, body: { pings: [{ from: OTTER.handle, message: "hey" }] } },
   },
 
-  "ping: poll drains the queue": {
+  "ping: a delivered ping is not repeated on the next heartbeat": {
     setup: [
       register(OTTER, {}, NOON),
       register(LYNX, {}, NOON),
       ping(OTTER, LYNX.handle, "hey", NOON),
-      pollPings(LYNX, NOON),
+      heartbeat(LYNX, 60, NOON),
     ],
-    request: pollPings(LYNX, NOON),
-    expect: { status: 200, body: { pings: [] } },
+    request: heartbeat(LYNX, 60, NOON + 60),
+    expect: { status: 200, notContains: "pings" },
+  },
+
+  "ping: an empty queue omits pings from the heartbeat response": {
+    setup: [register(LYNX, {}, NOON)],
+    request: heartbeat(LYNX, 60, NOON),
+    expect: { status: 200, notContains: "pings" },
   },
 
   "ping: 404s an unknown recipient": {
@@ -621,17 +621,12 @@ apiTests({
     expect: { status: 429 },
   },
 
-  "pings/poll: rejects missing token": {
+  "ping: the poll endpoint is gone": {
     request: {
       method: "POST",
       path: `/api/v1/users/${OTTER.handle}/pings/poll`,
-      body: {},
+      body: { token: OTTER.token },
     },
-    expect: { status: 400, body: { error: "invalid token" } },
-  },
-
-  "pings/poll: 404s an unknown handle": {
-    request: pollPings(OTTER),
-    expect: { status: 404, body: { error: "not found" } },
+    expect: { status: 404 },
   },
 });

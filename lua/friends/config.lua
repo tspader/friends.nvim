@@ -30,10 +30,11 @@ M.defaults = function()
       friends_only = false,
     },
     ping = {
-      -- Receive pings from friends. Sending is unaffected by this option.
+      -- Show pings from friends. Sending is unaffected by this option.
+      -- Pings ride along with activity heartbeats, so they only arrive
+      -- while you are tracking and editing. Pings from handles outside
+      -- your roster are ignored.
       enabled = true,
-      -- Seconds between checks for incoming pings. 0 disables receiving.
-      poll_interval = 10,
       -- How long the ping popup stays on screen, in milliseconds.
       duration_ms = 4000,
     },

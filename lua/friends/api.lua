@@ -103,10 +103,6 @@ M.send_ping = function(handle, token, to, message, cb)
   request("POST", "/v1/users/" .. handle .. "/ping", body, cb or function() end)
 end
 
-M.poll_pings = function(handle, token, cb)
-  request("POST", "/v1/users/" .. handle .. "/pings/poll", { token = token }, cb)
-end
-
 -- Blocking; only for :checkhealth.
 M.healthcheck = function()
   local out = vim

@@ -63,6 +63,7 @@ export class HubCore {
   private regDay = "";
   private regCount = 0;
   private regByIp = new Map<string, number>();
+  private lastPingAt = new Map<string, number>();
   private lastPruneDay = "";
 
   constructor(
@@ -177,7 +178,7 @@ export class HubCore {
     seconds: number;
     counters?: Partial<Record<string, number>>;
     handles?: string[];
-  }): Promise<HubError | { user: User; users?: User[]; at: number }> {
+  }): Promise<HubError | { user: User; users?: User[]; pings?: PendingPing[]; at: number }> {
     await this.ensureHydrated();
     const user = this.users.get(input.handle);
     if (!user) {
@@ -226,12 +227,16 @@ export class HubCore {
     this.dirtyDays.add(dayKey(input.handle, day));
     await this.requestFlush();
 
-    const result: { user: User; users?: User[]; at: number } = {
+    const result: { user: User; users?: User[]; pings?: PendingPing[]; at: number } = {
       user: publicUser(user),
       at,
     };
     if (input.handles) {
       result.users = this.lookup(input.handles);
+    }
+    const pings = this.drainPings(input.handle, at);
+    if (pings.length > 0) {
+      result.pings = pings;
     }
     return result;
   }
@@ -255,6 +260,11 @@ export class HubCore {
       this.dirtyDays.delete(dayKey(input.handle, day));
     }
     this.journal.exec("DELETE FROM pending WHERE handle = ?1", input.handle);
+    this.journal.exec(
+      "DELETE FROM pings WHERE to_handle = ?1 OR from_handle = ?1",
+      input.handle,
+    );
+    this.lastPingAt.delete(input.handle);
     return { ok: true };
   }
 
@@ -276,17 +286,19 @@ export class HubCore {
       return { error: "not found", status: 404 };
     }
     const at = this.now();
-    const last = this.journal
-      .exec("SELECT MAX(at) AS at FROM pings WHERE from_handle = ?1", input.handle)
-      .toArray()[0]?.at as number | null;
-    if (last !== null && last !== undefined && at - last < MIN_PING_GAP_SECONDS) {
+    const last = this.lastPingAt.get(input.handle);
+    if (last !== undefined && at - last < MIN_PING_GAP_SECONDS) {
       return { error: "too many pings; wait a moment", status: 429 };
     }
     const pending = this.journal
-      .exec("SELECT id FROM pings WHERE to_handle = ?1 ORDER BY at ASC, id ASC", input.to)
-      .toArray();
-    if (pending.length >= MAX_PENDING_PINGS_PER_RECIPIENT) {
-      this.journal.exec("DELETE FROM pings WHERE id = ?1", pending[0]!.id as number);
+      .exec("SELECT COUNT(*) AS count FROM pings WHERE to_handle = ?1", input.to)
+      .toArray()[0]?.count as number;
+    if (pending >= MAX_PENDING_PINGS_PER_RECIPIENT) {
+      this.journal.exec(
+        "DELETE FROM pings WHERE id IN " +
+          "(SELECT id FROM pings WHERE to_handle = ?1 ORDER BY at ASC, id ASC LIMIT 1)",
+        input.to,
+      );
     }
     this.journal.exec(
       "INSERT INTO pings (to_handle, from_handle, message, at) VALUES (?1, ?2, ?3, ?4)",
@@ -295,37 +307,28 @@ export class HubCore {
       input.message ?? null,
       at,
     );
+    this.lastPingAt.set(input.handle, at);
     return { ok: true };
   }
 
-  async checkPings(input: {
-    handle: string;
-    token: string;
-  }): Promise<HubError | { pings: PendingPing[]; at: number }> {
-    await this.ensureHydrated();
-    const user = this.users.get(input.handle);
-    if (!user) {
-      return { error: "not found", status: 404 };
-    }
-    if (user.token !== input.token) {
-      return { error: "handle taken", status: 403 };
-    }
-    const at = this.now();
+  private drainPings(handle: string, at: number): PendingPing[] {
     const rows = this.journal
       .exec(
         "SELECT from_handle, message, at FROM pings WHERE to_handle = ?1 ORDER BY at ASC, id ASC",
-        input.handle,
+        handle,
       )
       .toArray();
-    this.journal.exec("DELETE FROM pings WHERE to_handle = ?1", input.handle);
-    const pings = rows
+    if (rows.length === 0) {
+      return [];
+    }
+    this.journal.exec("DELETE FROM pings WHERE to_handle = ?1", handle);
+    return rows
       .filter((row) => at - (row.at as number) <= PING_TTL_SECONDS)
       .map((row) => ({
         from: row.from_handle as string,
         message: (row.message as string | null) ?? null,
         at: row.at as number,
       }));
-    return { pings, at };
   }
 
   async status(handles: string[]): Promise<{ users: User[]; at: number }> {
@@ -445,6 +448,7 @@ export class HubCore {
       return;
     }
     this.lastPruneDay = today;
+    this.journal.exec("DELETE FROM pings WHERE at < ?1", at - PING_TTL_SECONDS);
     const memoryCutoff = utcDay(at - (MEMORY_DAYS - 1) * 86400);
     for (const user of this.users.values()) {
       for (const day of user.days.keys()) {

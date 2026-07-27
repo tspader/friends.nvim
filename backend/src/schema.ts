@@ -55,8 +55,6 @@ export const PingBody = z.object({
   message: PingMessage.optional(),
 });
 
-export const PingsPollBody = z.object({ token: Token });
-
 export const StatusQuery = z.object({
   handles: handleList(MAX_STATUS_HANDLES),
 });
@@ -78,5 +76,3 @@ export type StatusQuery = z.infer<typeof StatusQuery>;
 export type LeaderboardQuery = z.infer<typeof LeaderboardQuery>;
 export type Period = z.infer<typeof Period>;
 export type Metric = z.infer<typeof Metric>;
-export type PingBody = z.infer<typeof PingBody>;
-export type PingsPollBody = z.infer<typeof PingsPollBody>;

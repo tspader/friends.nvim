@@ -1,12 +1,15 @@
 #!/usr/bin/env sh
 # Smoke test: boots the backend on bun:sqlite, then drives the plugin from a
-# clean headless nvim. No Cloudflare, no network beyond localhost.
+# clean headless nvim. No Cloudflare, no network beyond localhost. The backend
+# has to start from backend/, because bun reads bunfig.toml only from the
+# working directory and that is what loads the .sql migrations as text.
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PORT=${PORT:-8787}
 
-PORT=$PORT bun run "$ROOT/backend/serve.ts" &
+cd "$ROOT/backend"
+PORT=$PORT bun run serve.ts &
 SERVER=$!
 trap 'kill $SERVER 2>/dev/null' EXIT
 sleep 0.5

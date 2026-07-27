@@ -77,26 +77,17 @@ local _, unknown_status = await(function(cb)
 end)
 check("ping to unregistered handle 404s", unknown_status == 404, tostring(unknown_status))
 
-local polled = await(function(cb)
-  api.poll_pings(me, my_identity.token, cb)
+local delivered = await(function(cb)
+  api.heartbeat(me, my_identity.token, 30, nil, nil, cb)
 end)
 check(
-  "ping delivered on poll",
-  polled
-    and polled.pings
-    and #polled.pings == 1
-    and polled.pings[1].from == FRIEND
-    and polled.pings[1].message == "hello from smoke test",
-  vim.inspect(polled)
-)
-
-local drained = await(function(cb)
-  api.poll_pings(me, my_identity.token, cb)
-end)
-check(
-  "ping queue drains after poll",
-  drained and drained.pings and #drained.pings == 0,
-  vim.inspect(drained)
+  "ping rides the heartbeat response",
+  delivered
+    and delivered.pings
+    and #delivered.pings == 1
+    and delivered.pings[1].from == FRIEND
+    and delivered.pings[1].message == "hello from smoke test",
+  vim.inspect(delivered and delivered.pings)
 )
 
 local roster = require("friends.roster")
@@ -105,6 +96,71 @@ vim.wait(5000, function()
   return vim.tbl_contains(roster.all(), FRIEND)
 end)
 check("registered friend is added", vim.tbl_contains(roster.all(), FRIEND))
+
+local ping_ui = require("friends.ping")
+local editor_floats = function()
+  local out = {}
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    local cfg = vim.api.nvim_win_get_config(win)
+    if cfg.relative == "editor" and cfg.zindex == 300 then
+      table.insert(out, { win = win, cfg = cfg })
+    end
+  end
+  return out
+end
+
+ping_ui.deliver({ { from = FRIEND, message = "a message, so two lines" }, { from = FRIEND } })
+local floats = editor_floats()
+check("ping popups rendered", #floats == 2, tostring(#floats))
+check(
+  "ping popup names the sender",
+  (vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(floats[1].win), 0, -1, false)[1] or ""):find(
+    "pinged you",
+    1,
+    true
+  ) ~= nil,
+  vim.inspect(vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(floats[1].win), 0, -1, false))
+)
+
+local claimed, doubled = {}, {}
+for _, float in ipairs(floats) do
+  for row = float.cfg.row - 1, float.cfg.row + float.cfg.height do
+    if claimed[row] then
+      table.insert(doubled, row)
+    end
+    claimed[row] = true
+  end
+end
+check("stacked ping popups do not overlap", #doubled == 0, "rows " .. vim.inspect(doubled))
+
+ping_ui.dismiss()
+ping_ui.deliver({
+  { from = FRIEND, message = string.rep("x", 200) },
+  { from = FRIEND, message = string.rep("漢", 120) },
+})
+local overflow = {}
+for _, float in ipairs(editor_floats()) do
+  for _, line in ipairs(vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(float.win), 0, -1, false)) do
+    if vim.fn.strdisplaywidth(line) > float.cfg.width then
+      table.insert(overflow, line)
+    end
+  end
+end
+check("long ping message is truncated to the popup width", #overflow == 0, vim.inspect(overflow))
+
+ping_ui.deliver({ { from = "nobody-here-00", message = "from a stranger" } })
+check("ping from a non-friend is ignored", #editor_floats() == 2, tostring(#editor_floats()))
+
+ping_ui.dismiss()
+local burst = {}
+for i = 1, 6 do
+  table.insert(burst, { from = FRIEND, message = "burst " .. i })
+end
+ping_ui.deliver(burst)
+check("a burst of pings is capped to a readable stack", #editor_floats() == 3, tostring(#editor_floats()))
+
+ping_ui.dismiss()
+check("dismiss closes every ping popup", #editor_floats() == 0, tostring(#editor_floats()))
 
 roster.add("nobody-here-00")
 vim.wait(1000)

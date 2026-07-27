@@ -32,6 +32,9 @@ local flush = function()
       if data and data.users then
         require("friends.status").push(data.users)
       end
+      if data and data.pings then
+        require("friends.ping").deliver(data.pings)
+      end
       if status == 404 then
         require("friends.identity").register()
       elseif status == 403 and not warned_taken then

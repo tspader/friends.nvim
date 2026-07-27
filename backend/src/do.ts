@@ -35,10 +35,6 @@ export class Hub extends DurableObject<Env> {
     return this.core.sendPing(input);
   }
 
-  checkPings(input: Parameters<HubCore["checkPings"]>[0]) {
-    return this.core.checkPings(input);
-  }
-
   leaderboard(query: Parameters<HubCore["leaderboard"]>[0]) {
     return this.core.leaderboard(query);
   }

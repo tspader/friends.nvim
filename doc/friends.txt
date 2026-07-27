@@ -24,9 +24,11 @@ tracking is enabled, the plugin batches your activity into periodic
 heartbeats to the backend; disable `track` to lurk.
 
 You can ping a friend with |:Friends-ping|: a small popup appears in the
-corner of their Neovim window within a few seconds. Sending and receiving
-pings both require a registered identity, so `track = false` (lurking)
-disables pings too.
+corner of their Neovim window. Pings are delivered on the recipient's next
+activity heartbeat rather than over a channel of their own, so they arrive
+within a couple of minutes and only while that person is actually editing.
+Sending and receiving pings both require a registered identity, so
+`track = false` (lurking) disables pings too.
 
 ==============================================================================
 2. SETUP                                                        *friends-setup*
@@ -65,10 +67,11 @@ The defaults: >lua
       friends_only = false,
     },
     ping = {
-      -- Receive pings from friends. Sending is unaffected by this option.
+      -- Show pings from friends. Sending is unaffected by this option.
+      -- Pings ride along with activity heartbeats, so they only arrive
+      -- while you are tracking and editing. Pings from handles outside
+      -- your roster are ignored.
       enabled = true,
-      -- Seconds between checks for incoming pings. 0 disables receiving.
-      poll_interval = 10,
       -- How long the ping popup stays on screen, in milliseconds.
       duration_ms = 4000,
     },
@@ -101,10 +104,15 @@ The defaults: >lua
 :Friends ping {handle} [message]
                         Ping a friend already in your roster (|:Friends add|
                         them first). A small popup appears in the corner of
-                        their Neovim window within `ping.poll_interval`
-                        seconds and disappears on its own after
-                        `ping.duration_ms`. Rate limited to one ping every
-                        few seconds per sender.
+                        their Neovim window and disappears on its own after
+                        `ping.duration_ms`. Delivery rides their next
+                        activity heartbeat, so allow up to a couple of
+                        minutes, and note that someone who has stopped
+                        editing will not see it until they resume; pings go
+                        stale after ten minutes. Recipients ignore pings
+                        from handles that are not in their own roster.
+                        Rate limited to one ping every few seconds per
+                        sender.
 :Friends list           Show your friends (and yourself), who is active, and
                         their hours. The window below the list shows the
                         highlighted user's last-active time and their tracked

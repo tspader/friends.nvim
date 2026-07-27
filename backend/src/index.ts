@@ -14,7 +14,6 @@ import {
   MAX_LEADERBOARD_LIMIT,
   MAX_STATUS_HANDLES,
   PingBody,
-  PingsPollBody,
   RegisterBody,
   StatusQuery,
 } from "./schema";
@@ -23,7 +22,7 @@ type RateLimiter = { limit: (opts: { key: string }) => Promise<{ success: boolea
 
 export type HubStub = Pick<
   HubCore,
-  "register" | "heartbeat" | "status" | "leaderboard" | "deleteUser" | "sendPing" | "checkPings"
+  "register" | "heartbeat" | "status" | "leaderboard" | "deleteUser" | "sendPing"
 >;
 type HubNamespace = { idFromName(name: string): unknown; get(id: unknown): HubStub };
 
@@ -124,6 +123,7 @@ app.post(
     return c.json({
       ...userJson(result.user, result.at),
       ...(result.users && { users: result.users.map((user) => userJson(user, result.at)) }),
+      ...(result.pings && { pings: result.pings }),
     });
   },
 );
@@ -151,21 +151,6 @@ app.post(
     const { handle } = c.req.valid("param");
     const { token, to, message } = c.req.valid("json");
     const result = await hub(c).sendPing({ handle, token, to, message });
-    if (isError(result)) {
-      return c.json({ error: result.error }, result.status);
-    }
-    return c.json(result);
-  },
-);
-
-app.post(
-  "/v1/users/:handle/pings/poll",
-  zValidator("param", HandleParam, onInvalid),
-  zValidator("json", PingsPollBody, onInvalid),
-  async (c) => {
-    const { handle } = c.req.valid("param");
-    const { token } = c.req.valid("json");
-    const result = await hub(c).checkPings({ handle, token });
     if (isError(result)) {
       return c.json({ error: result.error }, result.status);
     }
