@@ -7,6 +7,7 @@ const TOKEN_RE = /^[a-zA-Z0-9_-]{8,64}$/;
 export const MAX_HEARTBEAT_SECONDS = 300;
 export const MAX_STATUS_HANDLES = 64;
 export const MAX_LEADERBOARD_LIMIT = 100;
+export const MAX_BODY_BYTES = 4096;
 
 export const Handle = z.string().regex(HANDLE_RE);
 export const Token = z.string().regex(TOKEN_RE);
@@ -70,8 +71,11 @@ export const LeaderboardQuery = z.object({
   handles: handleList(MAX_STATUS_HANDLES).optional(),
 });
 
+export const WsHeartbeatBody = HeartbeatBody.omit({ token: true });
+
 export type RegisterBody = z.infer<typeof RegisterBody>;
 export type HeartbeatBody = z.infer<typeof HeartbeatBody>;
+export type WsHeartbeatBody = z.infer<typeof WsHeartbeatBody>;
 export type StatusQuery = z.infer<typeof StatusQuery>;
 export type LeaderboardQuery = z.infer<typeof LeaderboardQuery>;
 export type Period = z.infer<typeof Period>;

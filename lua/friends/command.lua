@@ -32,7 +32,14 @@ local subcommands = {
       end
       local matches = require("friends.roster").resolve(args[1])
       if #matches == 0 then
-        util.notify(args[1] .. " isn't a friend — add them first with :Friends add", vim.log.levels.ERROR)
+        if not require("friends.status").fetched() then
+          util.notify(
+            "still fetching friend names — try again in a moment, or ping by handle",
+            vim.log.levels.WARN
+          )
+        else
+          util.notify(args[1] .. " isn't a friend — add them first with :Friends add", vim.log.levels.ERROR)
+        end
         return
       elseif #matches > 1 then
         util.notify(
@@ -160,8 +167,14 @@ M.complete = function(arglead, line)
       local roster = require("friends.roster").all()
       local candidates = vim.list_extend({}, roster)
       for _, user in ipairs(require("friends.status").users()) do
-        if user.display_name and vim.tbl_contains(roster, user.handle) and not vim.tbl_contains(candidates, user.display_name) then
-          table.insert(candidates, user.display_name)
+        local name = user.display_name
+        if
+          name
+          and not name:find("%s")
+          and vim.tbl_contains(roster, user.handle)
+          and not vim.tbl_contains(candidates, name)
+        then
+          table.insert(candidates, name)
         end
       end
       return vim.tbl_filter(function(c)

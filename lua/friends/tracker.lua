@@ -10,42 +10,73 @@ local last_flush = nil
 local counters = { keys_pressed = 0 }
 
 local warned_taken = false
+local in_flight = false
+
+local WS_ERROR_STATUS = {
+  unknown_handle = 404,
+  wrong_token = 403,
+  heartbeat_cooldown = 429,
+}
 
 local flush = function()
+  if in_flight then
+    return
+  end
   local now = vim.uv.now()
   local elapsed = math.floor((now - (last_flush or now)) / 1000)
   last_flush = now
   if not last_input or (now - last_input) > IDLE_TIMEOUT * 1000 or elapsed < 1 then
     return
   end
+  in_flight = true
   local snapshot = counters
   counters = { keys_pressed = 0 }
   local identity = require("friends.identity").get()
   local handles = require("friends.roster").all()
-  require("friends.api").heartbeat(
-    identity.handle,
-    identity.token,
-    math.min(300, elapsed),
-    snapshot,
-    handles,
-    function(data, status)
-      if data and data.users then
-        require("friends.status").push(data.users)
-      end
-      if data and data.pings then
-        require("friends.ping").deliver(data.pings)
-      end
-      if status == 404 then
-        require("friends.identity").register()
-      elseif status == 403 and not warned_taken then
-        warned_taken = true
-        require("friends.util").notify(
-          identity.handle .. " is owned by another machine's key — fix with :Friends claim",
-          vim.log.levels.WARN
-        )
-      end
+  local seconds = math.min(300, elapsed)
+
+  local handle_response = function(data, status)
+    in_flight = false
+    if data and data.users then
+      require("friends.status").push(data.users)
     end
-  )
+    if data and data.pings then
+      require("friends.ping").deliver(data.pings)
+    end
+    if status == 404 then
+      require("friends.identity").register()
+    elseif status == 403 and not warned_taken then
+      warned_taken = true
+      require("friends.util").notify(
+        identity.handle .. " is owned by another machine's key — fix with :Friends claim",
+        vim.log.levels.WARN
+      )
+    end
+  end
+
+  local via_rest = function()
+    require("friends.api").heartbeat(identity.handle, identity.token, seconds, snapshot, handles, handle_response)
+  end
+
+  if require("friends.socket").is_ready() then
+    local api = require("friends.api")
+    local payload =
+      vim.tbl_extend("force", { type = "heartbeat" }, api.heartbeat_body(seconds, snapshot, handles))
+    require("friends.socket").send_heartbeat(payload, function(response)
+      if response and response.type == "heartbeat_ack" then
+        handle_response(response, 200)
+        return
+      end
+      local status = response and response.type == "error" and WS_ERROR_STATUS[response.code]
+      if status then
+        handle_response(nil, status)
+      else
+        via_rest()
+      end
+    end)
+  else
+    via_rest()
+  end
 end
 
 M.running = function()

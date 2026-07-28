@@ -3,13 +3,13 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cache } from "hono/cache";
 import type { Context, MiddlewareHandler } from "hono";
-import type { User } from "./db";
-import { isError, type HubCore, type HubError, type HubErrorCode } from "./hub";
+import { isError, userJson, type HubCore, type HubError, type HubErrorCode } from "./hub";
 import {
   DeleteBody,
   HandleParam,
   HeartbeatBody,
   LeaderboardQuery,
+  MAX_BODY_BYTES,
   MAX_HEARTBEAT_SECONDS,
   MAX_LEADERBOARD_LIMIT,
   MAX_STATUS_HANDLES,
@@ -23,7 +23,7 @@ type RateLimiter = { limit: (opts: { key: string }) => Promise<{ success: boolea
 export type HubStub = Pick<
   HubCore,
   "register" | "heartbeat" | "status" | "leaderboard" | "deleteUser" | "sendPing"
->;
+> & { fetch?(request: Request): Promise<Response> };
 type HubNamespace = { idFromName(name: string): unknown; get(id: unknown): HubStub };
 
 type AppEnv = {
@@ -34,17 +34,9 @@ type AppEnv = {
   };
 };
 
-const ACTIVE_WINDOW_SECONDS = 300;
-const MAX_BODY_BYTES = 4096;
-
 const hub = (c: Context<AppEnv>): HubStub => c.env.HUB.get(c.env.HUB.idFromName("hub"));
 
 const clientIp = (c: Context<AppEnv>): string => c.req.header("cf-connecting-ip") ?? "unknown";
-
-const userJson = (user: User, at: number) => ({
-  ...user,
-  active: user.last_seen_at !== null && at - user.last_seen_at <= ACTIVE_WINDOW_SECONDS,
-});
 
 const HUB_ERRORS: Record<HubErrorCode, { status: 403 | 404 | 409 | 429 | 503; message: string }> = {
   handle_taken: { status: 409, message: "handle taken" },
@@ -173,6 +165,14 @@ app.post(
     return c.json(result);
   },
 );
+
+app.get("/v1/ws", (c) => {
+  const stub = hub(c);
+  if (!stub.fetch) {
+    return c.json({ error: "websockets unavailable" }, 501);
+  }
+  return stub.fetch(c.req.raw);
+});
 
 app.get("/v1/users", zValidator("query", StatusQuery, onInvalid), async (c) => {
   const { handles } = c.req.valid("query");
