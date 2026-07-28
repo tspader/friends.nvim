@@ -32,7 +32,7 @@ local await = function(fn)
   return out, code
 end
 
-require("friends").setup({ url = url, status_interval = 0 })
+require("friends").setup({ url = url, status_interval = 0, ws = { enabled = false } })
 require("friends").start()
 local me = require("friends").handle()
 check("identity generated", type(me) == "string" and #me > 0, tostring(me))
@@ -146,7 +146,9 @@ vim.notify = function(msg)
   notify_msg = msg
 end
 vim.cmd("Friends ping Smokey unique name works")
-vim.wait(2000)
+vim.wait(5000, function()
+  return notify_msg ~= nil
+end)
 vim.notify = orig_notify
 check(
   "ping by unique display name resolves to the right handle",
@@ -443,6 +445,95 @@ end)
 check("list detail shows tracked stats", detail_has("keys pressed"))
 check("list detail shows last active", detail_has("last active"))
 close_float()
+
+local empty_roster_body = api.heartbeat_body(60, { keys_pressed = 1 }, {})
+check(
+  "heartbeat body omits an empty roster",
+  empty_roster_body.handles == nil and empty_roster_body.seconds == 60,
+  vim.inspect(empty_roster_body)
+)
+local capped_body = api.heartbeat_body(60, nil, (function()
+  local many = {}
+  for i = 1, 70 do
+    many[i] = ("friend-%02d-xx"):format(i)
+  end
+  return many
+end)())
+check(
+  "heartbeat body caps an over-long roster",
+  capped_body.handles ~= nil and #capped_body.handles == 64,
+  tostring(capped_body.handles and #capped_body.handles)
+)
+check("heartbeat body omits empty counters", api.heartbeat_body(60, {}, nil).counters == nil)
+
+local socket = require("friends.socket")
+if vim.fn.executable("websocat") ~= 1 then
+  io.write("live connection checks..." .. colored("green", "skipped") .. " (websocat not installed)\n")
+else
+  local ws_identity = require("friends.identity")
+  require("friends").setup({ ws = { enabled = true } })
+  socket.start()
+  check("live connection comes up", vim.wait(10000, socket.is_ready, 50), socket.status())
+
+  local WS_USER = "smoke-wsuser-01"
+  local WS_TOKEN = "smoke-wstoken-01"
+  local ws_reg = await(function(cb)
+    api.register(WS_USER, WS_TOKEN, nil, cb)
+  end)
+  check("register a handle for the socket", ws_reg and ws_reg.handle == WS_USER, tostring(api.last_error))
+
+  local ws_claimed
+  ws_identity.claim(WS_USER, WS_TOKEN, function(ok)
+    ws_claimed = ok
+  end)
+  vim.wait(5000, function()
+    return ws_claimed ~= nil
+  end)
+  check("claim adopts the new identity", ws_claimed == true, tostring(ws_claimed))
+  check(
+    "socket reconnects under the claimed handle",
+    vim.wait(10000, socket.is_ready, 50),
+    socket.status()
+  )
+
+  local ack
+  socket.send_heartbeat(
+    vim.tbl_extend("force", { type = "heartbeat" }, api.heartbeat_body(60, { keys_pressed = 7 }, roster.all())),
+    function(response)
+      ack = response or false
+    end
+  )
+  vim.wait(5000, function()
+    return ack ~= nil
+  end)
+  check(
+    "heartbeat over the socket credits time",
+    type(ack) == "table"
+      and ack.type == "heartbeat_ack"
+      and ack.handle == WS_USER
+      and ack.total_seconds == 60,
+    vim.inspect(ack)
+  )
+
+  require("friends.tracker").stop()
+  ping_ui.dismiss()
+  local ws_ping = await(function(cb)
+    api.send_ping(FRIEND, TOKEN, WS_USER, "live from the socket", cb)
+  end)
+  check("ping to a connected user accepted", ws_ping and ws_ping.ok == true, vim.inspect(ws_ping))
+  check(
+    "ping arrives live over the socket",
+    vim.wait(5000, function()
+      return #editor_floats() > 0
+    end, 50),
+    "no popup rendered"
+  )
+  ping_ui.dismiss()
+
+  socket.stop()
+  require("friends").setup({ ws = { enabled = false } })
+  require("friends.tracker").start()
+end
 
 local identity = require("friends.identity")
 local claim_result

@@ -119,7 +119,12 @@ The defaults: >lua
                         Delivered instantly if `websocat` is installed and
                         connected (see |friends-setup|'s `ws` option),
                         otherwise on the recipient's next activity
-                        heartbeat. Pings go stale after ten minutes.
+                        heartbeat. Instant delivery is best effort: a ping
+                        sent while the recipient's connection is dropping
+                        can be lost, because the server cannot tell that
+                        apart from a healthy one until the connection times
+                        out. Pings that queue for the next heartbeat are
+                        not affected. Pings go stale after ten minutes.
                         Recipients ignore pings from handles that are not
                         in their own roster. Rate limited to one ping every
                         few seconds per sender.
