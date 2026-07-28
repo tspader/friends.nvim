@@ -75,6 +75,7 @@ M.register = function(attempt)
     identity.handle = M.generate()
     util.write_json(identity_path(), identity)
     util.notify("handle taken, you are now " .. identity.handle)
+    require("friends.socket").restart()
     M.register(attempt + 1)
   end)
 end
@@ -85,6 +86,7 @@ M.claim = function(handle, token, cb)
     if data then
       cached = { handle = handle, token = token, display_name = data.display_name }
       util.write_json(identity_path(), cached)
+      require("friends.socket").restart()
       util.notify("claimed " .. handle)
       cb(true)
     elseif status == 409 then
@@ -108,6 +110,7 @@ M.delete = function(cb)
     if data or status == 404 then
       os.remove(identity_path())
       cached = nil
+      require("friends.socket").restart()
       util.notify("deleted " .. handle .. " — a new identity will be created")
       cb(true)
     else

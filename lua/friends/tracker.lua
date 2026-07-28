@@ -12,6 +12,12 @@ local counters = { keys_pressed = 0 }
 local warned_taken = false
 local in_flight = false
 
+local WS_ERROR_STATUS = {
+  unknown_handle = 404,
+  wrong_token = 403,
+  heartbeat_cooldown = 429,
+}
+
 local flush = function()
   if in_flight then
     return
@@ -53,20 +59,21 @@ local flush = function()
   end
 
   if require("friends.socket").is_ready() then
-    require("friends.socket").send_heartbeat(
-      { seconds = seconds, counters = snapshot, handles = handles },
-      function(response)
-        if response and response.type == "heartbeat_ack" then
-          handle_response(response, 200)
-        elseif response and response.type == "error" then
-          local status = response.code == "unknown_handle" and 404
-            or (response.code == "wrong_token" and 403 or 0)
-          handle_response(nil, status)
-        else
-          via_rest()
-        end
+    local api = require("friends.api")
+    local payload =
+      vim.tbl_extend("force", { type = "heartbeat" }, api.heartbeat_body(seconds, snapshot, handles))
+    require("friends.socket").send_heartbeat(payload, function(response)
+      if response and response.type == "heartbeat_ack" then
+        handle_response(response, 200)
+        return
       end
-    )
+      local status = response and response.type == "error" and WS_ERROR_STATUS[response.code]
+      if status then
+        handle_response(nil, status)
+      else
+        via_rest()
+      end
+    end)
   else
     via_rest()
   end

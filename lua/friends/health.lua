@@ -12,8 +12,19 @@ M.check = function()
     health.error("curl not found in PATH")
   end
 
-  if vim.fn.executable("websocat") == 1 then
-    health.ok("websocat found — pings and heartbeats use a live connection")
+  local socket_status = require("friends.socket").status()
+  if socket_status == "connected" then
+    health.ok("live connection up — pings and heartbeats go over the socket")
+  elseif socket_status == "connecting" then
+    local detail = require("friends.socket").last_error()
+    health.info(
+      "live connection not up yet — pings and heartbeats use polling until it is"
+        .. (detail and ("\nwebsocat: " .. detail) or "")
+    )
+  elseif socket_status == "disabled" then
+    health.info("live connection disabled by ws.enabled — pings and heartbeats use polling")
+  elseif socket_status == "invalid_url" then
+    health.warn("url must start with http:// or https:// to use a live connection")
   else
     health.info("websocat not found — pings and heartbeats use polling")
   end
