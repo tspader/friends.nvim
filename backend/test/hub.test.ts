@@ -390,7 +390,7 @@ test("authenticate: rejects the wrong token", async () => {
   }
 });
 
-test("ping: deliveredLive skips the durable queue", async () => {
+test("ping: a live delivery skips the durable queue", async () => {
   const d1 = createLocalDb();
   const journal = createLocalJournal();
   const hub = createHub(d1, journal, () => {});
@@ -400,7 +400,7 @@ test("ping: deliveredLive skips the durable queue", async () => {
     await hub.register(LYNX);
     const sent = await hub.sendPing(
       { handle: U.handle, token: U.token, to: LYNX.handle, message: "hey" },
-      { deliveredLive: true },
+      { deliver: () => true },
     );
     expect(isError(sent)).toBe(false);
     expect(pingRows(journal)).toBe(0);
@@ -410,30 +410,73 @@ test("ping: deliveredLive skips the durable queue", async () => {
   }
 });
 
-test("ping: deliveredLive still enforces the cooldown and recipient checks", async () => {
+test("ping: a failed live delivery still queues durably", async () => {
+  const d1 = createLocalDb();
+  const journal = createLocalJournal();
+  const hub = createHub(d1, journal, () => {});
+  try {
+    at(NOON);
+    await hub.register(U);
+    await hub.register(LYNX);
+    const sent = await hub.sendPing(
+      { handle: U.handle, token: U.token, to: LYNX.handle, message: "hey" },
+      { deliver: () => false },
+    );
+    expect(isError(sent)).toBe(false);
+    expect(pingRows(journal)).toBe(1);
+    expect(await deliver(hub, LYNX)).toEqual([{ from: U.handle, message: "hey", at: NOON }]);
+  } finally {
+    setSystemTime();
+  }
+});
+
+test("ping: deliver runs only after the sender is authenticated", async () => {
   const d1 = createLocalDb();
   const hub = createHub(d1, createLocalJournal(), () => {});
   try {
     at(NOON);
     await hub.register(U);
     await hub.register(LYNX);
-    const first = await hub.sendPing(
-      { handle: U.handle, token: U.token, to: LYNX.handle },
-      { deliveredLive: true },
-    );
-    expect(isError(first)).toBe(false);
+    let delivered = 0;
+    const deliverSpy = () => {
+      delivered += 1;
+      return true;
+    };
 
-    const second = await hub.sendPing(
-      { handle: U.handle, token: U.token, to: LYNX.handle },
-      { deliveredLive: true },
+    const wrongToken = await hub.sendPing(
+      { handle: U.handle, token: "someone-elses-token", to: LYNX.handle },
+      { deliver: deliverSpy },
     );
-    expect(isError(second) && second.code).toBe("ping_cooldown");
+    expect(isError(wrongToken) && wrongToken.code).toBe("wrong_token");
+    expect(delivered).toBe(0);
 
-    const unknown = await hub.sendPing(
+    const unknownSender = await hub.sendPing(
+      { handle: "nobody-here-00", token: U.token, to: LYNX.handle },
+      { deliver: deliverSpy },
+    );
+    expect(isError(unknownSender) && unknownSender.code).toBe("unknown_handle");
+    expect(delivered).toBe(0);
+
+    const unknownRecipient = await hub.sendPing(
       { handle: U.handle, token: U.token, to: "nobody-here-00" },
-      { deliveredLive: true },
+      { deliver: deliverSpy },
     );
-    expect(isError(unknown) && unknown.code).toBe("unknown_recipient");
+    expect(isError(unknownRecipient) && unknownRecipient.code).toBe("unknown_recipient");
+    expect(delivered).toBe(0);
+
+    const ok = await hub.sendPing(
+      { handle: U.handle, token: U.token, to: LYNX.handle },
+      { deliver: deliverSpy },
+    );
+    expect(isError(ok)).toBe(false);
+    expect(delivered).toBe(1);
+
+    const cooled = await hub.sendPing(
+      { handle: U.handle, token: U.token, to: LYNX.handle },
+      { deliver: deliverSpy },
+    );
+    expect(isError(cooled) && cooled.code).toBe("ping_cooldown");
+    expect(delivered).toBe(1);
   } finally {
     setSystemTime();
   }

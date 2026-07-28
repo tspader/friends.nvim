@@ -304,7 +304,7 @@ export class HubCore {
       to: string;
       message?: string;
     },
-    opts?: { deliveredLive?: boolean },
+    opts?: { deliver?: () => boolean },
   ): Promise<HubError | { ok: true }> {
     await this.ensureHydrated();
     const sender = this.users.get(input.handle);
@@ -322,7 +322,8 @@ export class HubCore {
     if (last !== undefined && at - last < MIN_PING_GAP_SECONDS) {
       return { code: "ping_cooldown" };
     }
-    if (!opts?.deliveredLive) {
+    const deliveredLive = opts?.deliver?.() ?? false;
+    if (!deliveredLive) {
       const pending = this.journal
         .exec("SELECT COUNT(*) AS count FROM pings WHERE to_handle = ?1", input.to)
         .toArray()[0]?.count as number;

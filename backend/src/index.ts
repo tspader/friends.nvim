@@ -9,6 +9,7 @@ import {
   HandleParam,
   HeartbeatBody,
   LeaderboardQuery,
+  MAX_BODY_BYTES,
   MAX_HEARTBEAT_SECONDS,
   MAX_LEADERBOARD_LIMIT,
   MAX_STATUS_HANDLES,
@@ -32,8 +33,6 @@ type AppEnv = {
     GET_LIMITER?: RateLimiter;
   };
 };
-
-const MAX_BODY_BYTES = 4096;
 
 const hub = (c: Context<AppEnv>): HubStub => c.env.HUB.get(c.env.HUB.idFromName("hub"));
 

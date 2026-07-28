@@ -7,6 +7,7 @@ const TOKEN_RE = /^[a-zA-Z0-9_-]{8,64}$/;
 export const MAX_HEARTBEAT_SECONDS = 300;
 export const MAX_STATUS_HANDLES = 64;
 export const MAX_LEADERBOARD_LIMIT = 100;
+export const MAX_BODY_BYTES = 4096;
 
 export const Handle = z.string().regex(HANDLE_RE);
 export const Token = z.string().regex(TOKEN_RE);
