@@ -103,8 +103,12 @@ The defaults: >lua
                                                                 *:Friends-ping*
 :Friends ping {handle} [message]
                         Ping a friend already in your roster (|:Friends add|
-                        them first). A small popup appears in the corner of
-                        their Neovim window and disappears on its own after
+                        them first). {handle} also accepts their display
+                        name (case-insensitive, single word only — see
+                        |:Friends-name|); if it matches more than one
+                        friend, you'll be asked to use the handle instead.
+                        A small popup appears in the corner of their Neovim
+                        window and disappears on its own after
                         `ping.duration_ms`. Delivery rides their next
                         activity heartbeat, so allow up to a couple of
                         minutes, and note that someone who has stopped
@@ -117,7 +121,9 @@ The defaults: >lua
                         their hours. The window below the list shows the
                         highlighted user's last-active time and their tracked
                         stats (active time, keys pressed).
-:Friends name {name}    Set your display name.
+                                                               *:Friends-name*
+:Friends name {name}    Set your display name. Must be a single word (no
+                        spaces).
 :Friends handle         Show your handle so you can share it.
                                                                 *:Friends-key*
 :Friends key            Show your handle + secret token, for claiming this

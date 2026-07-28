@@ -102,6 +102,77 @@ vim.wait(5000, function()
 end)
 check("registered friend is added", vim.tbl_contains(roster.all(), FRIEND))
 
+local SECOND_FRIEND = "smoke-friend-02"
+local SECOND_TOKEN = "smoke-token-0002"
+local reg2 = await(function(cb)
+  api.register(SECOND_FRIEND, SECOND_TOKEN, "Smokey", cb)
+end)
+check("register second friend", reg2 and reg2.handle == SECOND_FRIEND, tostring(api.last_error))
+roster.add(SECOND_FRIEND)
+vim.wait(5000, function()
+  return vim.tbl_contains(roster.all(), SECOND_FRIEND)
+end)
+
+local status = require("friends.status")
+status.refresh()
+vim.wait(5000, function()
+  return status.display_name(FRIEND) == "Smokey" and status.display_name(SECOND_FRIEND) == "Smokey"
+end)
+
+local notify_msg
+local orig_notify = vim.notify
+vim.notify = function(msg)
+  notify_msg = msg
+end
+vim.cmd("Friends ping Smokey hi")
+vim.wait(500)
+vim.notify = orig_notify
+check(
+  "ambiguous display name rejected",
+  notify_msg ~= nil
+    and notify_msg:find("matches multiple friends", 1, true) ~= nil
+    and notify_msg:find(FRIEND, 1, true) ~= nil
+    and notify_msg:find(SECOND_FRIEND, 1, true) ~= nil,
+  tostring(notify_msg)
+)
+
+roster.remove(SECOND_FRIEND)
+vim.wait(5000, function()
+  return not vim.tbl_contains(roster.all(), SECOND_FRIEND)
+end)
+
+notify_msg = nil
+vim.notify = function(msg)
+  notify_msg = msg
+end
+vim.cmd("Friends ping Smokey unique name works")
+vim.wait(2000)
+vim.notify = orig_notify
+check(
+  "ping by unique display name resolves to the right handle",
+  notify_msg == "friends.nvim: pinged " .. FRIEND,
+  tostring(notify_msg)
+)
+
+local orig_display_name = require("friends.identity").display_name()
+notify_msg = nil
+vim.notify = function(msg)
+  notify_msg = msg
+end
+vim.cmd("Friends name has a space")
+vim.wait(200)
+vim.notify = orig_notify
+check(
+  "display name with spaces rejected",
+  notify_msg ~= nil and notify_msg:find("can't contain spaces", 1, true) ~= nil,
+  tostring(notify_msg)
+)
+check(
+  "rejected display name left unchanged",
+  require("friends.identity").display_name() == orig_display_name,
+  tostring(require("friends.identity").display_name())
+)
+
 local ping_ui = require("friends.ping")
 local editor_floats = function()
   local out = {}

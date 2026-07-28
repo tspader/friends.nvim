@@ -52,6 +52,21 @@ M.add = function(handle)
   end)
 end
 
+M.resolve = function(name)
+  local roster = M.all()
+  if vim.tbl_contains(roster, name) then
+    return { name }
+  end
+  local lowered = name:lower()
+  local matches = {}
+  for _, user in ipairs(require("friends.status").users()) do
+    if user.display_name and user.display_name:lower() == lowered and vim.tbl_contains(roster, user.handle) then
+      table.insert(matches, user.handle)
+    end
+  end
+  return matches
+end
+
 M.remove = function(handle)
   local list = saved()
   local kept = vim.tbl_filter(function(h)

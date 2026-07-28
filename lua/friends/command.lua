@@ -30,23 +30,31 @@ local subcommands = {
         util.notify("usage: :Friends ping {handle} [message]", vim.log.levels.ERROR)
         return
       end
-      if not vim.tbl_contains(require("friends.roster").all(), args[1]) then
+      local matches = require("friends.roster").resolve(args[1])
+      if #matches == 0 then
         util.notify(args[1] .. " isn't a friend — add them first with :Friends add", vim.log.levels.ERROR)
         return
+      elseif #matches > 1 then
+        util.notify(
+          args[1] .. " matches multiple friends (" .. table.concat(matches, ", ") .. ") — use a handle instead",
+          vim.log.levels.ERROR
+        )
+        return
       end
+      local handle = matches[1]
       local identity = require("friends.identity").get()
       local message = #args > 1 and table.concat(vim.list_slice(args, 2), " ") or nil
-      require("friends.api").send_ping(identity.handle, identity.token, args[1], message, function(_, status, code)
+      require("friends.api").send_ping(identity.handle, identity.token, handle, message, function(_, status, code)
         if code == "unknown_handle" then
           util.notify("you gotta register before you can ping", vim.log.levels.ERROR)
         elseif status == 404 then
-          util.notify(args[1] .. " isn't registered", vim.log.levels.ERROR)
+          util.notify(handle .. " isn't registered", vim.log.levels.ERROR)
         elseif status == 429 then
           util.notify("the refractory period is not a joke", vim.log.levels.WARN)
         elseif not status or status < 200 or status >= 300 then
           util.notify("ping failed: " .. (require("friends.api").last_error or "?"), vim.log.levels.ERROR)
         else
-          util.notify("pinged " .. args[1])
+          util.notify("pinged " .. handle)
         end
       end)
     end,
@@ -78,7 +86,11 @@ local subcommands = {
         util.notify("usage: :Friends name {display name}", vim.log.levels.ERROR)
         return
       end
-      require("friends.identity").set_display_name(table.concat(args, " "))
+      if args[2] then
+        util.notify("display names can't contain spaces", vim.log.levels.ERROR)
+        return
+      end
+      require("friends.identity").set_display_name(args[1])
     end,
   },
   handle = {
@@ -139,10 +151,22 @@ end
 M.complete = function(arglead, line)
   local words = vim.split(line, "%s+", { trimempty = true })
   if #words > 2 or (#words == 2 and arglead == "") then
-    if words[2] == "remove" or words[2] == "ping" then
+    if words[2] == "remove" then
       return vim.tbl_filter(function(h)
         return vim.startswith(h, arglead)
       end, require("friends.roster").all())
+    end
+    if words[2] == "ping" then
+      local roster = require("friends.roster").all()
+      local candidates = vim.list_extend({}, roster)
+      for _, user in ipairs(require("friends.status").users()) do
+        if user.display_name and vim.tbl_contains(roster, user.handle) and not vim.tbl_contains(candidates, user.display_name) then
+          table.insert(candidates, user.display_name)
+        end
+      end
+      return vim.tbl_filter(function(c)
+        return vim.startswith(c, arglead)
+      end, candidates)
     end
     if words[2] == "board" then
       local values = {}
