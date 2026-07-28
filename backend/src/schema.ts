@@ -70,8 +70,11 @@ export const LeaderboardQuery = z.object({
   handles: handleList(MAX_STATUS_HANDLES).optional(),
 });
 
+export const WsHeartbeatBody = HeartbeatBody.omit({ token: true });
+
 export type RegisterBody = z.infer<typeof RegisterBody>;
 export type HeartbeatBody = z.infer<typeof HeartbeatBody>;
+export type WsHeartbeatBody = z.infer<typeof WsHeartbeatBody>;
 export type StatusQuery = z.infer<typeof StatusQuery>;
 export type LeaderboardQuery = z.infer<typeof LeaderboardQuery>;
 export type Period = z.infer<typeof Period>;

@@ -65,6 +65,13 @@ const publicUser = (user: UserState): User => ({
 
 const dayKey = (handle: string, day: string) => `${handle}\n${day}`;
 
+export const ACTIVE_WINDOW_SECONDS = 300;
+
+export const userJson = (user: User, at: number) => ({
+  ...user,
+  active: user.last_seen_at !== null && at - user.last_seen_at <= ACTIVE_WINDOW_SECONDS,
+});
+
 export class HubCore {
   private users = new Map<string, UserState>();
   private dirty = new Set<string>();
@@ -251,6 +258,18 @@ export class HubCore {
     return result;
   }
 
+  async authenticate(handle: string, token: string): Promise<HubError | { ok: true }> {
+    await this.ensureHydrated();
+    const user = this.users.get(handle);
+    if (!user) {
+      return { code: "unknown_handle" };
+    }
+    if (user.token !== token) {
+      return { code: "wrong_token" };
+    }
+    return { ok: true };
+  }
+
   async deleteUser(input: {
     handle: string;
     token: string;
@@ -278,12 +297,15 @@ export class HubCore {
     return { ok: true };
   }
 
-  async sendPing(input: {
-    handle: string;
-    token: string;
-    to: string;
-    message?: string;
-  }): Promise<HubError | { ok: true }> {
+  async sendPing(
+    input: {
+      handle: string;
+      token: string;
+      to: string;
+      message?: string;
+    },
+    opts?: { deliveredLive?: boolean },
+  ): Promise<HubError | { ok: true }> {
     await this.ensureHydrated();
     const sender = this.users.get(input.handle);
     if (!sender) {
@@ -300,23 +322,25 @@ export class HubCore {
     if (last !== undefined && at - last < MIN_PING_GAP_SECONDS) {
       return { code: "ping_cooldown" };
     }
-    const pending = this.journal
-      .exec("SELECT COUNT(*) AS count FROM pings WHERE to_handle = ?1", input.to)
-      .toArray()[0]?.count as number;
-    if (pending >= MAX_PENDING_PINGS_PER_RECIPIENT) {
+    if (!opts?.deliveredLive) {
+      const pending = this.journal
+        .exec("SELECT COUNT(*) AS count FROM pings WHERE to_handle = ?1", input.to)
+        .toArray()[0]?.count as number;
+      if (pending >= MAX_PENDING_PINGS_PER_RECIPIENT) {
+        this.journal.exec(
+          "DELETE FROM pings WHERE id IN " +
+            "(SELECT id FROM pings WHERE to_handle = ?1 ORDER BY at ASC, id ASC LIMIT 1)",
+          input.to,
+        );
+      }
       this.journal.exec(
-        "DELETE FROM pings WHERE id IN " +
-          "(SELECT id FROM pings WHERE to_handle = ?1 ORDER BY at ASC, id ASC LIMIT 1)",
+        "INSERT INTO pings (to_handle, from_handle, message, at) VALUES (?1, ?2, ?3, ?4)",
         input.to,
+        input.handle,
+        input.message ?? null,
+        at,
       );
     }
-    this.journal.exec(
-      "INSERT INTO pings (to_handle, from_handle, message, at) VALUES (?1, ?2, ?3, ?4)",
-      input.to,
-      input.handle,
-      input.message ?? null,
-      at,
-    );
     this.lastPingAt.set(input.handle, at);
     return { ok: true };
   }

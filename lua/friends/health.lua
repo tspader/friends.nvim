@@ -12,6 +12,12 @@ M.check = function()
     health.error("curl not found in PATH")
   end
 
+  if vim.fn.executable("websocat") == 1 then
+    health.ok("websocat found — pings and heartbeats use a live connection")
+  else
+    health.info("websocat not found — pings and heartbeats use polling")
+  end
+
   local identity = require("friends.identity").get()
   health.ok("handle: " .. identity.handle)
   local display_name = require("friends.identity").display_name()

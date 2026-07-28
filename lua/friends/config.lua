@@ -38,6 +38,9 @@ M.defaults = function()
       -- How long the ping popup stays on screen, in milliseconds.
       duration_ms = 4000,
     },
+    ws = {
+      enabled = true,
+    },
   }
 end
 

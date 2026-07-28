@@ -30,6 +30,12 @@ a global leaderboard of your `neovim` usage!
 Plug 'tspader/friends.nvim'
 ```
 
+## requirements
+
+- `curl` needs to be on your `PATH`.
+- [`websocat`](https://github.com/vi/websocat) is optional. If installed, it maintains a websocket connection instead
+of waiting around for the next poll. `:checkhealth friends` to see what's missing.
+
 ## usage
 
 On first boot, `friends.nvim` will register and assign you a public handle
