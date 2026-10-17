@@ -1,13 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
-import { createHub, FLUSH_INTERVAL_SECONDS, type HubCore } from "./hub";
+import { createHub, FLUSH_INTERVAL_SECONDS, isError, type HubCore } from "./hub";
 import {
   authorizeUpgrade,
+  CLOSE_ACCOUNT_DELETED,
+  closeAll,
   createWsLimiter,
-  deliverPing,
   handleWsMessage,
   helloFrame,
   isRejection,
-  pingFrame,
+  livePing,
   safeCloseCode,
   type Attachment,
   type WsLike,
@@ -36,8 +37,16 @@ export class Hub extends DurableObject<Env> {
     return this.core.heartbeat(input);
   }
 
-  deleteUser(input: Parameters<HubCore["deleteUser"]>[0]) {
-    return this.core.deleteUser(input);
+  async deleteUser(input: Parameters<HubCore["deleteUser"]>[0]) {
+    const result = await this.core.deleteUser(input);
+    if (!isError(result)) {
+      closeAll(
+        this.ctx.getWebSockets(input.handle) as unknown as WsLike[],
+        CLOSE_ACCOUNT_DELETED,
+        "account deleted",
+      );
+    }
+    return result;
   }
 
   status(handles: string[]) {
@@ -46,14 +55,12 @@ export class Hub extends DurableObject<Env> {
 
   sendPing(input: Parameters<HubCore["sendPing"]>[0]) {
     return this.core.sendPing(input, {
-      deliver: () => {
-        const sockets = this.ctx.getWebSockets(input.to) as unknown as WsLike[];
-        if (sockets.length === 0) {
-          return false;
-        }
-        const frame = pingFrame(input.handle, input.message ?? null, Math.floor(Date.now() / 1000));
-        return deliverPing(sockets, frame);
-      },
+      deliver: () =>
+        livePing(
+          this.ctx.getWebSockets(input.to) as unknown as WsLike[],
+          input.handle,
+          input.message ?? null,
+        ),
     });
   }
 
@@ -94,5 +101,9 @@ export class Hub extends DurableObject<Env> {
   async webSocketClose(ws: WebSocket, code: number, reason: string) {
     this.limiter.forget(ws as unknown as WsLike);
     ws.close(safeCloseCode(code), reason);
+  }
+
+  async webSocketError(ws: WebSocket) {
+    this.limiter.forget(ws as unknown as WsLike);
   }
 }

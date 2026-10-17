@@ -1,15 +1,16 @@
 import type { ServerWebSocket } from "bun";
 import app from "./src/index";
-import { createHub, type HubCore } from "./src/hub";
+import { createHub, isError, type HubCore } from "./src/hub";
 import { createLocalDb, createLocalJournal } from "./src/sqlite";
 import {
   authorizeUpgrade,
+  CLOSE_ACCOUNT_DELETED,
+  closeAll,
   createWsLimiter,
-  deliverPing,
   handleWsMessage,
   helloFrame,
   isRejection,
-  pingFrame,
+  livePing,
   type Attachment,
   type WsLike,
 } from "./src/ws";
@@ -45,22 +46,23 @@ const untrack = (ws: ServerWebSocket<Attachment>) => {
   }
 };
 
+const socketsFor = (handle: string) => [...(sockets.get(handle) ?? [])] as unknown as WsLike[];
+
 const stub = {
   register: core.register.bind(core),
   heartbeat: core.heartbeat.bind(core),
   status: core.status.bind(core),
   leaderboard: core.leaderboard.bind(core),
-  deleteUser: core.deleteUser.bind(core),
+  deleteUser: async (input: Parameters<HubCore["deleteUser"]>[0]) => {
+    const result = await core.deleteUser(input);
+    if (!isError(result)) {
+      closeAll(socketsFor(input.handle), CLOSE_ACCOUNT_DELETED, "account deleted");
+    }
+    return result;
+  },
   sendPing: (input: Parameters<HubCore["sendPing"]>[0]) =>
     core.sendPing(input, {
-      deliver: () => {
-        const targets = [...(sockets.get(input.to) ?? [])] as unknown as WsLike[];
-        if (targets.length === 0) {
-          return false;
-        }
-        const frame = pingFrame(input.handle, input.message ?? null, Math.floor(Date.now() / 1000));
-        return deliverPing(targets, frame);
-      },
+      deliver: () => livePing(socketsFor(input.to), input.handle, input.message ?? null),
     }),
 };
 

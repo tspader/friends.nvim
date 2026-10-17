@@ -112,8 +112,6 @@ test("ws: a pending ping rides the heartbeat ack", async () => {
   }
 });
 
-// The client used to send its roster unguarded, so a user with no friends sent
-// [] and every heartbeat they made was rejected -- silently, and forever.
 test("ws: an empty handles array is rejected", async () => {
   try {
     at(NOON);
@@ -348,7 +346,6 @@ test("deliverPing: reports delivery when at least one socket takes it", () => {
 });
 
 test("safeCloseCode: clamps codes close() will not accept", () => {
-  // 1005 (no status) and 1006 (abnormal) are observed but unsettable.
   expect(safeCloseCode(1005)).toBe(1000);
   expect(safeCloseCode(1006)).toBe(1000);
   expect(safeCloseCode(1001)).toBe(1000);

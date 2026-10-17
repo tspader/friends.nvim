@@ -156,6 +156,9 @@ M.status = function()
   if not config.options.url:match("^https?://") then
     return "invalid_url"
   end
+  if stopped then
+    return "stopped"
+  end
   if M.is_ready() then
     return "connected"
   end
@@ -212,7 +215,9 @@ M.send_heartbeat = function(payload, cb)
       clear_pending(nil)
     end)
   )
-  vim.fn.chansend(job, vim.json.encode(payload) .. "\n")
+  if not pcall(vim.fn.chansend, job, vim.json.encode(payload) .. "\n") then
+    clear_pending(nil)
+  end
 end
 
 return M

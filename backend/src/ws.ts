@@ -1,19 +1,14 @@
-// Everything the websocket path does that does not need the Durable Object
-// runtime. Kept out of do.ts so it can be tested without cloudflare:workers.
 import { isError, userJson, type HubCore } from "./hub";
 import { MAX_BODY_BYTES, WsHeartbeatBody } from "./schema";
 
-// The subset of WebSocket that both workerd and Bun's ServerWebSocket satisfy.
 export type WsLike = {
-  send(data: string): void;
+  send(data: string): void | number;
   close(code?: number, reason?: string): void;
   readyState: number;
 };
 
 export const WS_OPEN = 1;
 
-// Frames per socket per window. A heartbeat is one frame every two minutes, so
-// this is orders of magnitude above any honest client.
 export const MAX_WS_MESSAGES_PER_WINDOW = 60;
 export const WS_LIMIT_WINDOW_MS = 60_000;
 
@@ -27,16 +22,9 @@ export const helloFrame = (handle: string): string =>
 export const pingFrame = (from: string, message: string | null, at: number): string =>
   JSON.stringify({ type: "ping", from, message, at });
 
-// close() only accepts 1000 or 3000-4999. A peer that sends an empty close
-// frame surfaces as 1005, and echoing that back throws.
 export const safeCloseCode = (code: number): number =>
   code >= 3000 && code <= 4999 ? code : 1000;
 
-// Fans a frame out to a recipient's sockets. Skipping sockets that are not
-// OPEN keeps us from reporting delivery on one we already know is going away.
-// It does NOT catch a peer that died without a close handshake: that socket
-// still reports OPEN, so a live ping can still be lost. The durable queue is
-// only skipped when this returns true, so that window is the residual risk.
 export const deliverPing = (sockets: WsLike[], frame: string): boolean => {
   let delivered = false;
   for (const ws of sockets) {
@@ -44,13 +32,25 @@ export const deliverPing = (sockets: WsLike[], frame: string): boolean => {
       continue;
     }
     try {
-      ws.send(frame);
-      delivered = true;
-    } catch {
-      // socket race; fall through to the durable queue
-    }
+      if (ws.send(frame) !== 0) {
+        delivered = true;
+      }
+    } catch {}
   }
   return delivered;
+};
+
+export const livePing = (sockets: WsLike[], from: string, message: string | null): boolean =>
+  deliverPing(sockets, pingFrame(from, message, Math.floor(Date.now() / 1000)));
+
+export const CLOSE_ACCOUNT_DELETED = 4001;
+
+export const closeAll = (sockets: WsLike[], code: number, reason: string): void => {
+  for (const ws of sockets) {
+    try {
+      ws.close(code, reason);
+    } catch {}
+  }
 };
 
 export type UpgradeAuth = { handle: string; token: string };
@@ -75,9 +75,6 @@ export const authorizeUpgrade = async (
   return { handle, token };
 };
 
-// Per-socket frame budget. Messages arriving after the upgrade never pass
-// through the /v1/* rate limiter, so without this a single connection can
-// spin the shared hub object for free.
 export type WsLimiter = {
   allow(ws: WsLike): boolean;
   forget(ws: WsLike): void;

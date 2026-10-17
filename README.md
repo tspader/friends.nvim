@@ -32,9 +32,10 @@ Plug 'tspader/friends.nvim'
 
 ## requirements
 
-- `curl` needs to be on your `PATH`.
-- [`websocat`](https://github.com/vi/websocat) is optional. If installed, it maintains a websocket connection instead
-of waiting around for the next poll. `:checkhealth friends` to see what's missing.
+- `curl`, on your `PATH`.
+- [`websocat`](https://github.com/vi/websocat), if you want pings to arrive in a timely manner.
+  Lets pings from your friends arrive immediately instead of waiting for the
+  next heartbeat. Run `:checkhealth friends` to see what's missing.
 
 ## usage
 

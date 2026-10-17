@@ -21,6 +21,8 @@ M.check = function()
       "live connection not up yet — pings and heartbeats use polling until it is"
         .. (detail and ("\nwebsocat: " .. detail) or "")
     )
+  elseif socket_status == "stopped" then
+    health.info("live connection not running — it only runs while tracking is on")
   elseif socket_status == "disabled" then
     health.info("live connection disabled by ws.enabled — pings and heartbeats use polling")
   elseif socket_status == "invalid_url" then
