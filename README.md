@@ -30,6 +30,13 @@ a global leaderboard of your `neovim` usage!
 Plug 'tspader/friends.nvim'
 ```
 
+## requirements
+
+- `curl`, on your `PATH`.
+- [`websocat`](https://github.com/vi/websocat), if you want pings to arrive in a timely manner.
+  Lets pings from your friends arrive immediately instead of waiting for the
+  next heartbeat. Run `:checkhealth friends` to see what's missing.
+
 ## usage
 
 On first boot, `friends.nvim` will register and assign you a public handle

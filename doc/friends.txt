@@ -24,11 +24,12 @@ tracking is enabled, the plugin batches your activity into periodic
 heartbeats to the backend; disable `track` to lurk.
 
 You can ping a friend with |:Friends-ping|: a small popup appears in the
-corner of their Neovim window. Pings are delivered on the recipient's next
-activity heartbeat rather than over a channel of their own, so they arrive
-within a couple of minutes and only while that person is actually editing.
-Sending and receiving pings both require a registered identity, so
-`track = false` (lurking) disables pings too.
+corner of their Neovim window. If your friend has `websocat` installed, the
+plugin holds a connection open and the ping arrives immediately. Otherwise it
+waits for their next activity heartbeat, so it arrives within a couple of
+minutes, and only while they are editing. Sending and receiving pings both
+require a registered identity, so `track = false` (lurking) disables pings
+too.
 
 ==============================================================================
 2. SETUP                                                        *friends-setup*
@@ -68,12 +69,17 @@ The defaults: >lua
     },
     ping = {
       -- Show pings from friends. Sending is unaffected by this option.
-      -- Pings ride along with activity heartbeats, so they only arrive
-      -- while you are tracking and editing. Pings from handles outside
-      -- your roster are ignored.
+      -- Pings arrive over the live connection (see `ws`) or with your
+      -- next heartbeat, which goes out only while you are tracking and
+      -- editing. Pings from handles outside your roster are ignored.
       enabled = true,
       -- How long the ping popup stays on screen, in milliseconds.
       duration_ms = 4000,
+    },
+    ws = {
+      -- Hold a connection open so pings arrive at once. Needs the
+      -- `websocat` command; without it, or when false, the plugin polls.
+      enabled = true,
     },
   })
 <
@@ -102,21 +108,12 @@ The defaults: >lua
                         Unfollow a friend.
                                                                 *:Friends-ping*
 :Friends ping {handle} [message]
-                        Ping a friend already in your roster (|:Friends add|
-                        them first). {handle} also accepts their display
-                        name (case-insensitive, single word only — see
-                        |:Friends-name|); if it matches more than one
-                        friend, you'll be asked to use the handle instead.
-                        A small popup appears in the corner of their Neovim
-                        window and disappears on its own after
-                        `ping.duration_ms`. Delivery rides their next
-                        activity heartbeat, so allow up to a couple of
-                        minutes, and note that someone who has stopped
-                        editing will not see it until they resume; pings go
-                        stale after ten minutes. Recipients ignore pings
-                        from handles that are not in their own roster.
-                        Rate limited to one ping every few seconds per
-                        sender.
+                        Ping a friend in your roster. {handle} accepts a
+                        handle or display name (see |:Friends-name|). A
+                        small popup appears in the corcner of their Neovim
+                        window and closes after `ping.duration_ms`.
+                        Recipients ignore pings from handles they haven't
+                        added as friends.
 :Friends list           Show your friends (and yourself), who is active, and
                         their hours. The window below the list shows the
                         highlighted user's last-active time and their tracked

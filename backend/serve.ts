@@ -1,6 +1,19 @@
+import type { ServerWebSocket } from "bun";
 import app from "./src/index";
-import { createHub } from "./src/hub";
+import { createHub, isError, type HubCore } from "./src/hub";
 import { createLocalDb, createLocalJournal } from "./src/sqlite";
+import {
+  authorizeUpgrade,
+  CLOSE_ACCOUNT_DELETED,
+  closeAll,
+  createWsLimiter,
+  handleWsMessage,
+  helloFrame,
+  isRejection,
+  livePing,
+  type Attachment,
+  type WsLike,
+} from "./src/ws";
 
 const port = Number(process.env.PORT ?? 8787);
 const flushMs = Number(process.env.FLUSH_MS ?? 10_000);
@@ -15,7 +28,76 @@ const core = createHub(createLocalDb(), createLocalJournal(), () => {
   }, flushMs);
 });
 
-const env = { HUB: { idFromName: (name: string) => name, get: () => core } };
+const sockets = new Map<string, Set<ServerWebSocket<Attachment>>>();
+const limiter = createWsLimiter();
 
-Bun.serve({ port, fetch: (req) => app.fetch(req, env) });
+const track = (ws: ServerWebSocket<Attachment>) => {
+  const set = sockets.get(ws.data.handle) ?? new Set();
+  set.add(ws);
+  sockets.set(ws.data.handle, set);
+};
+
+const untrack = (ws: ServerWebSocket<Attachment>) => {
+  const set = sockets.get(ws.data.handle);
+  if (!set) return;
+  set.delete(ws);
+  if (set.size === 0) {
+    sockets.delete(ws.data.handle);
+  }
+};
+
+const socketsFor = (handle: string) => [...(sockets.get(handle) ?? [])] as unknown as WsLike[];
+
+const stub = {
+  register: core.register.bind(core),
+  heartbeat: core.heartbeat.bind(core),
+  status: core.status.bind(core),
+  leaderboard: core.leaderboard.bind(core),
+  deleteUser: async (input: Parameters<HubCore["deleteUser"]>[0]) => {
+    const result = await core.deleteUser(input);
+    if (!isError(result)) {
+      closeAll(socketsFor(input.handle), CLOSE_ACCOUNT_DELETED, "account deleted");
+    }
+    return result;
+  },
+  sendPing: (input: Parameters<HubCore["sendPing"]>[0]) =>
+    core.sendPing(input, {
+      deliver: () => livePing(socketsFor(input.to), input.handle, input.message ?? null),
+    }),
+};
+
+const env = { HUB: { idFromName: (name: string) => name, get: () => stub } };
+
+Bun.serve<Attachment>({
+  port,
+  async fetch(req, server) {
+    if (new URL(req.url).pathname === "/api/v1/ws") {
+      const auth = await authorizeUpgrade(core, req);
+      if (isRejection(auth)) {
+        return new Response(auth.message, { status: auth.status });
+      }
+      if (server.upgrade(req, { data: auth })) {
+        return undefined;
+      }
+      return new Response("upgrade failed", { status: 400 });
+    }
+    return app.fetch(req, env);
+  },
+  websocket: {
+    open(ws) {
+      track(ws);
+      ws.send(helloFrame(ws.data.handle));
+    },
+    async message(ws, message) {
+      if (typeof message !== "string") {
+        return;
+      }
+      await handleWsMessage(core, ws.data, message, ws as unknown as WsLike, limiter);
+    },
+    close(ws) {
+      untrack(ws);
+      limiter.forget(ws as unknown as WsLike);
+    },
+  },
+});
 console.log(`friends backend listening on http://127.0.0.1:${port} (in-memory db)`);

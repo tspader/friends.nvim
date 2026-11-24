@@ -352,6 +352,136 @@ test("ping: deleting a user clears pings to and from them", async () => {
   }
 });
 
+test("authenticate: accepts a valid handle/token", async () => {
+  const d1 = createLocalDb();
+  const hub = createHub(d1, createLocalJournal(), () => {});
+  try {
+    at(NOON);
+    await hub.register(U);
+    const result = await hub.authenticate(U.handle, U.token);
+    expect(isError(result)).toBe(false);
+  } finally {
+    setSystemTime();
+  }
+});
+
+test("authenticate: rejects an unknown handle", async () => {
+  const d1 = createLocalDb();
+  const hub = createHub(d1, createLocalJournal(), () => {});
+  try {
+    at(NOON);
+    const result = await hub.authenticate("nobody-here-00", "some-token-0000");
+    expect(isError(result) && result.code).toBe("unknown_handle");
+  } finally {
+    setSystemTime();
+  }
+});
+
+test("authenticate: rejects the wrong token", async () => {
+  const d1 = createLocalDb();
+  const hub = createHub(d1, createLocalJournal(), () => {});
+  try {
+    at(NOON);
+    await hub.register(U);
+    const result = await hub.authenticate(U.handle, "someone-elses-token");
+    expect(isError(result) && result.code).toBe("wrong_token");
+  } finally {
+    setSystemTime();
+  }
+});
+
+test("ping: a live delivery skips the durable queue", async () => {
+  const d1 = createLocalDb();
+  const journal = createLocalJournal();
+  const hub = createHub(d1, journal, () => {});
+  try {
+    at(NOON);
+    await hub.register(U);
+    await hub.register(LYNX);
+    const sent = await hub.sendPing(
+      { handle: U.handle, token: U.token, to: LYNX.handle, message: "hey" },
+      { deliver: () => true },
+    );
+    expect(isError(sent)).toBe(false);
+    expect(pingRows(journal)).toBe(0);
+    expect(await deliver(hub, LYNX)).toEqual([]);
+  } finally {
+    setSystemTime();
+  }
+});
+
+test("ping: a failed live delivery still queues durably", async () => {
+  const d1 = createLocalDb();
+  const journal = createLocalJournal();
+  const hub = createHub(d1, journal, () => {});
+  try {
+    at(NOON);
+    await hub.register(U);
+    await hub.register(LYNX);
+    const sent = await hub.sendPing(
+      { handle: U.handle, token: U.token, to: LYNX.handle, message: "hey" },
+      { deliver: () => false },
+    );
+    expect(isError(sent)).toBe(false);
+    expect(pingRows(journal)).toBe(1);
+    expect(await deliver(hub, LYNX)).toEqual([{ from: U.handle, message: "hey", at: NOON }]);
+  } finally {
+    setSystemTime();
+  }
+});
+
+test("ping: deliver runs only after the sender is authenticated", async () => {
+  const d1 = createLocalDb();
+  const hub = createHub(d1, createLocalJournal(), () => {});
+  try {
+    at(NOON);
+    await hub.register(U);
+    await hub.register(LYNX);
+    let delivered = 0;
+    const deliverSpy = () => {
+      delivered += 1;
+      return true;
+    };
+
+    const wrongToken = await hub.sendPing(
+      { handle: U.handle, token: "someone-elses-token", to: LYNX.handle },
+      { deliver: deliverSpy },
+    );
+    expect(isError(wrongToken) && wrongToken.code).toBe("wrong_token");
+    expect(delivered).toBe(0);
+
+    const unknownSender = await hub.sendPing(
+      { handle: "nobody-here-00", token: U.token, to: LYNX.handle },
+      { deliver: deliverSpy },
+    );
+    expect(isError(unknownSender) && unknownSender.code).toBe("unknown_handle");
+    expect(delivered).toBe(0);
+
+    const unknownRecipient = await hub.sendPing(
+      { handle: U.handle, token: U.token, to: "nobody-here-00" },
+      { deliver: deliverSpy },
+    );
+    expect(isError(unknownRecipient) && unknownRecipient.code).toBe("unknown_recipient");
+    expect(delivered).toBe(0);
+
+    const ok = await hub.sendPing(
+      { handle: U.handle, token: U.token, to: LYNX.handle },
+      { deliver: deliverSpy },
+    );
+    expect(isError(ok)).toBe(false);
+    expect(delivered).toBe(1);
+
+    const cooled = await hub.sendPing(
+      { handle: U.handle, token: U.token, to: LYNX.handle },
+      { deliver: deliverSpy },
+    );
+    expect(isError(cooled) && cooled.code).toBe("ping_cooldown");
+    expect(delivered).toBe(1);
+  } finally {
+    setSystemTime();
+  }
+});
+
 test("ping: prune sweeps expired ping rows", async () => {
   const d1 = createLocalDb();
   const journal = createLocalJournal();

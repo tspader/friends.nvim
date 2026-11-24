@@ -15,12 +15,14 @@ M.start = function()
   if config.options.track then
     require("friends.identity").register()
     require("friends.tracker").start()
+    require("friends.socket").start()
   end
   require("friends.status").start()
 end
 
 M.stop = function()
   require("friends.tracker").stop()
+  require("friends.socket").stop()
   require("friends.status").stop()
   require("friends.ping").dismiss()
   started = false

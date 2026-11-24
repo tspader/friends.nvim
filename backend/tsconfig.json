@@ -11,5 +11,5 @@
     "noEmit": true,
     "types": ["@cloudflare/workers-types", "bun"]
   },
-  "include": ["src", "test"]
+  "include": ["src", "test", "serve.ts"]
 }

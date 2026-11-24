@@ -65,8 +65,8 @@ M.register = function(handle, token, display_name, cb)
   request("PUT", "/v1/users/" .. handle, body, cb or function() end)
 end
 
-M.heartbeat = function(handle, token, seconds, counters, handles, cb)
-  local body = { token = token, seconds = seconds }
+M.heartbeat_body = function(seconds, counters, handles)
+  local body = { seconds = seconds }
   if counters and next(counters) then
     body.counters = counters
   end
@@ -74,6 +74,11 @@ M.heartbeat = function(handle, token, seconds, counters, handles, cb)
   if handles and #handles > 0 then
     body.handles = handles
   end
+  return body
+end
+
+M.heartbeat = function(handle, token, seconds, counters, handles, cb)
+  local body = vim.tbl_extend("force", { token = token }, M.heartbeat_body(seconds, counters, handles))
   request("POST", "/v1/users/" .. handle .. "/heartbeat", body, cb or function() end)
 end
 
